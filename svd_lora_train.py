@@ -20,12 +20,14 @@ from modules.svd_lora_linear import SVDLoRALinear
 from utils import print_gpu_memory
 
 
-def convert_linear_to_svd_lora_linear(module):
+def convert_linear_to_svd_lora_linear(module, rank_compress_ratio, lora_method):
     for name, submodule in module.named_children():
         if isinstance(submodule, nn.Linear):
             if "lora" not in name:
                 svd_linear = SVDLoRALinear.from_linear(
-                    submodule, r_ratio=args.rank_compress_ratio
+                    submodule,
+                    r_ratio=rank_compress_ratio,
+                    lora_method=lora_method,
                 )
                 del submodule.weight
                 setattr(module, name, svd_linear)
@@ -38,7 +40,9 @@ def convert_linear_to_svd_lora_linear(module):
         #         )
         #         setattr(module, name, svd_linear)
         else:
-            convert_linear_to_svd_lora_linear(submodule)
+            convert_linear_to_svd_lora_linear(
+                submodule, rank_compress_ratio, lora_method
+            )
 
 
 def total_model_parameters_buffers(model):
@@ -50,10 +54,10 @@ def total_model_parameters_buffers(model):
 def train(model, tokenizer, train_dataset, args):
     # Training Params
     train_params = TrainingArguments(
-        output_dir="./output/svd_lora_train",
+        output_dir=f"./output/{args.model_id.replace('/','_')}_svd_lora_train_{args.lora_method}_{args.rank_compress_ratio}",
         num_train_epochs=1,
-        per_device_train_batch_size=4,
-        gradient_accumulation_steps=4,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=8,
         # optim="paged_adamw_32bit",
         optim="adamw_torch",
         save_steps=1000,
@@ -91,7 +95,6 @@ def main(args):
     # Model and tokenizer names
     # base_model_name = "NousResearch/Llama-2-7b-chat-hf"
     model_id = args.model_id
-    refined_model = args.saved_dir
     # "./checkpoints/opt-1.3b-lora-mlabonne-enhanced-svd"
 
     # Tokenizer
@@ -107,7 +110,7 @@ def main(args):
     raw_model_parameters, raw_model_buffers = total_model_parameters_buffers(model)
     print("raw model tot: {}".format(raw_model_parameters + raw_model_buffers))
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model)
+    convert_linear_to_svd_lora_linear(model, args.rank_compress_ratio, args.lora_method)
     torch.cuda.empty_cache()
     print_gpu_memory("after convert_linear_to_svd_lora_linear")
 
@@ -121,13 +124,11 @@ def main(args):
     )
     print("train ratio: {}".format(svd_model_parameters / raw_model_parameters))
 
-    # train
-    if not args.inference_mode:
-        # train_dataset = get_qat_dataset(training_data, llama_tokenizer, 256)
-        data_name = "tatsu-lab/alpaca"
-        # data_name = 'timdettmers/openassistant-guanaco'
-        training_dataset = load_dataset(data_name, split="train")
-        train(model, llama_tokenizer, training_dataset, args)
+    # train_dataset = get_qat_dataset(training_data, llama_tokenizer, 256)
+    data_name = "tatsu-lab/alpaca"
+    # data_name = 'timdettmers/openassistant-guanaco'
+    training_dataset = load_dataset(data_name, split="train")
+    train(model, llama_tokenizer, training_dataset, args)
 
     model_merged = model
     query = "### Human: I am depressed, what should I do?"
@@ -146,27 +147,9 @@ def main(args):
         llama_tokenizer,
         model_id,
         "llmqat",
-        limit=-1,
-        eval_ppl=False,
+        limit=200,
+        eval_ppl=True,
         num_fewshot=0,
-    )
-    evaluate_model(
-        model_merged,
-        llama_tokenizer,
-        model_id,
-        "mmlu",
-        limit=-1,
-        eval_ppl=False,
-        num_fewshot=0,
-    )
-    evaluate_model(
-        model_merged,
-        llama_tokenizer,
-        model_id,
-        "mmlu",
-        limit=-1,
-        eval_ppl=False,
-        num_fewshot=5,
     )
 
 
@@ -179,28 +162,16 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--saved_dir",
-        type=str,
-        default="./checkpoints/opt-1.3b-lora-mlabonne-enhanced-svd",
-        help="dir for saving the lora and merged weights",
-    )
-    parser.add_argument(
-        "--using_svd",
-        action="store_true",
-        default=False,
-        help="if using svd for pretrained weight",
-    )
-    parser.add_argument(
         "--rank_compress_ratio",
         type=float,
         default=0.2,
         help="for svd, default: 0.17",
     )
     parser.add_argument(
-        "--inference_mode",
-        action="store_true",
-        default=False,
-        help="inference only mode",
+        "--lora_method",
+        type=str,
+        default="UV",
+        help="lora method, default: UV",
     )
     args = parser.parse_args()
 

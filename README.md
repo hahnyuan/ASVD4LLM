@@ -1,3 +1,17 @@
 # Run
-CUDA_VISIBLE_DEVICES='0,1' python svd_lora_train.py --model_id="huggyllama/llama-7b" --saved_dir="./output/llama-7b-svdlora" --using_svd --rank_compress_ratio=0.2
-CUDA_VISIBLE_DEVICES='1' python svd_lora_train.py --model_id="facebook/opt-125m" --saved_dir="./output/opt-125m-svdlora" --using_svd --rank_compress_ratio=0.2
+CUDA_VISIBLE_DEVICES='0,1' python svd_lora_train.py --model_id="huggyllama/llama-7b" --rank_compress_ratio=0.2 --lora_method "Uonly"
+CUDA_VISIBLE_DEVICES='2,3' python svd_lora_train.py --model_id="huggyllama/llama-7b" --rank_compress_ratio=0.2 --lora_method "Vonly"
+CUDA_VISIBLE_DEVICES='2' python svd_lora_train.py --model_id="facebook/opt-125m" --lora_method "Uonly" --rank_compress_ratio=0.2
+CUDA_VISIBLE_DEVICES='0' python svd_lora_train.py --model_id="facebook/opt-1.3b" --lora_method "Uonly" --rank_compress_ratio=0.2
+CUDA_VISIBLE_DEVICES='1' python svd_lora_train.py --model_id="facebook/opt-1.3b" --lora_method "Vonly" --rank_compress_ratio=0.2
+CUDA_VISIBLE_DEVICES='2' python svd_lora_train.py --model_id="facebook/opt-1.3b" --lora_method "UV" --rank_compress_ratio=0.2
+
+# Eval
+CUDA_VISIBLE_DEVICES='0' python tools/eval_checkpoint.py "huggyllama/llama-7b" output/svd_lora_train/checkpoint-2000 --rank_compress_ratio=0.2 --lora_method "UV"
+CUDA_VISIBLE_DEVICES='0' python tools/eval_checkpoint.py "huggyllama/llama-7b" output/svd_lora_train_Uonly_0.2/checkpoint-2000 --rank_compress_ratio=0.2 --lor`a_method "Uonly" --limit 200
+CUDA_VISIBLE_DEVICES='1' python tools/eval_checkpoint.py "huggyllama/llama-7b" output/svd_lora_train_Vonly_0.2/checkpoint-2000 --rank_compress_ratio=0.2 --lora_method "Vonly"
+
+CUDA_VISIBLE_DEVICES='2' python tools/eval_checkpoint.py --model_id="facebook/opt-1.3b" --lora_method "UV" --rank_compress_ratio=0.2 --path="output/facebook_opt-1.3b_svd_lora_train_UV_0.2/checkpoint-3000"
+CUDA_VISIBLE_DEVICES='1' python tools/eval_checkpoint.py --model_id="facebook/opt-1.3b" --lora_method "Uonly" --rank_compress_ratio=0.2 --path="output/facebook_opt-1.3b_svd_lora_train_Uonly_0.2/checkpoint-3000"
+CUDA_VISIBLE_DEVICES='0' python tools/eval_checkpoint.py --model_id="facebook/opt-1.3b" --lora_method "Vonly" --rank_compress_ratio=0.2 --path="output/facebook_opt-1.3b_svd_lora_train_Vonly_0.2/checkpoint-3000"
+
