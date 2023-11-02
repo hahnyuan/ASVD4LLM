@@ -17,6 +17,7 @@ from datasets import load_dataset
 
 from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
+from utils import print_gpu_memory
 
 
 def convert_linear_to_svd_lora_linear(module):
@@ -26,8 +27,10 @@ def convert_linear_to_svd_lora_linear(module):
                 svd_linear = SVDLoRALinear.from_linear(
                     submodule, r_ratio=args.rank_compress_ratio
                 )
+                del submodule.weight
                 setattr(module, name, svd_linear)
-                print(f"convert {name} to svd_lora_linear")
+                # clear memory
+                # print(f"convert {name} to svd_lora_linear")
         # elif isinstance(submodule, nn.Embedding):
         #     if "lora" not in name:
         #         svd_linear = SVDLoRALinear.from_linear(
@@ -38,8 +41,10 @@ def convert_linear_to_svd_lora_linear(module):
             convert_linear_to_svd_lora_linear(submodule)
 
 
-def total_model_parameters(model):
-    return sum(p.numel() for p in model.parameters())
+def total_model_parameters_buffers(model):
+    return sum(p.numel() for p in model.parameters()), sum(
+        p.numel() for p in model.buffers()
+    )
 
 
 def train(model, tokenizer, train_dataset, args):
@@ -99,15 +104,22 @@ def main(args):
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
-    raw_model_parameters = total_model_parameters(model)
-    print("raw model parameters: {}".format(raw_model_parameters))
+    raw_model_parameters, raw_model_buffers = total_model_parameters_buffers(model)
+    print("raw model tot: {}".format(raw_model_parameters + raw_model_buffers))
+    print_gpu_memory("before convert_linear_to_svd_lora_linear")
     convert_linear_to_svd_lora_linear(model)
+    torch.cuda.empty_cache()
+    print_gpu_memory("after convert_linear_to_svd_lora_linear")
 
-    svd_model_parameters = total_model_parameters(model)
-    print("svd model parameters: {}".format(svd_model_parameters))
+    svd_model_parameters, svd_model_buffers = total_model_parameters_buffers(model)
+    print("svd model tot: {}".format(svd_model_parameters + svd_model_buffers))
     print(
-        "svd compression ratio: {}".format(svd_model_parameters / raw_model_parameters)
+        "tot ratio:{}".format(
+            (svd_model_parameters + svd_model_buffers)
+            / (raw_model_parameters + raw_model_buffers)
+        )
     )
+    print("train ratio: {}".format(svd_model_parameters / raw_model_parameters))
 
     # train
     if not args.inference_mode:
