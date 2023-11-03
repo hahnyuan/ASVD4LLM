@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import os
+
 from datautils import get_loaders
 from lm_eval.base import BaseLM
 from lm_eval import evaluator
@@ -213,4 +214,5 @@ def evaluate_model(
     acc_list = [results[key]["acc"] for key in results.keys() if "acc" in results[key]]
     # print mean
     print(f"\n\n===== mean acc: {sum(acc_list)/len(acc_list)} =====\n\n")
+    results["mean"] = sum(acc_list) / len(acc_list)
     return results

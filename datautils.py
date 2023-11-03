@@ -133,7 +133,7 @@ def get_ptb(nsamples, seed, seqlen, model, cache_dir):
     return trainloader, testenc
 
 
-def get_ptq_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
+def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     print(f" get_ptq_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
     cache_file = (
         f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"

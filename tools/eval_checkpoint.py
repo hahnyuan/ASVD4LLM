@@ -32,9 +32,20 @@ def main(args):
     llama_tokenizer.padding_side = "right"  # Fix for fp16
 
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
-    convert_linear_to_svd_lora_linear(model, args.rank_compress_ratio, args.lora_method)
-    state_dict = torch.load(args.path + "/pytorch_model.bin", map_location="cuda:0")
-    model.load_state_dict(state_dict)
+    convert_linear_to_svd_lora_linear(model, args)
+    if os.path.exists(args.path + "/pytorch_model.bin"):
+        state_dict = torch.load(args.path + "/pytorch_model.bin", map_location="cuda:0")
+        model.load_state_dict(state_dict)
+    else:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, args.path)
+        model = model.merge_and_unload()
+        model.save_pretrained(os.path.join(args.path, "final_merged"))
+        model = AutoModelForCausalLM.from_pretrained(
+            os.path.join(args.path, "final_merged")
+        )
+
     model.eval()
 
     svd_model_parameters, svd_model_buffers = total_model_parameters_buffers(model)
@@ -102,16 +113,25 @@ if __name__ == "__main__":
         help="checkpoint path",
     )
     parser.add_argument(
-        "--rank_compress_ratio",
+        "--msa_rank_ratio",
         type=float,
-        default=0.2,
-        help="for svd, default: 0.17",
+        default=0.3,
+    )
+    parser.add_argument(
+        "--mlp_rank_ratio",
+        type=float,
+        default=0.1,
     )
     parser.add_argument(
         "--lora_method",
         type=str,
         default="UV",
         help="lora method, default: UV",
+    )
+    parser.add_argument(
+        "--act_aware",
+        action="store_true",
+        help="use act aware svd lora",
     )
     parser.add_argument("--limit", type=int, default=200, help="limit of eval data")
     args = parser.parse_args()
