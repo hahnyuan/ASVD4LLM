@@ -30,3 +30,12 @@ CUDA_VISIBLE_DEVICES='0' python tools/eval_checkpoint.py --model_id="facebook/op
 output/facebook_opt-1.3b_svd_lora_train_reconstruct_0.3_0.1/checkpoint-3000
 
 CUDA_VISIBLE_DEVICES='2' python tools/eval_checkpoint.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct" --path="tmp/LLM_PEFT/svd_peft/checkpoints/llama-7b-svdlora/final_merged"
+
+# Sensitivity
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct"
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct"
+
+CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity.py --model_id="huggyllama/llama-7b" --lora_method "reconstruct"
+
+CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware

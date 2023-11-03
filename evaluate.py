@@ -93,7 +93,7 @@ def evaluate_model(
     tokenizer,
     model_name,
     tasks,
-    eval_ppl=False,
+    eval_ppl="",
     seed=1,
     num_fewshot=0,
     cache_dir="./data/",
@@ -105,11 +105,12 @@ def evaluate_model(
     limit: number of test samples for debug, set to -1 is no limit
     tasks: str tasks are split by ,
     num_fewshot: Number of examples in few-shot context
+    eval_ppl: str datasets are split by , such as 'wikitext2,ptb,c4'
     """
     lm = EvalLM(model, tokenizer, batch_size=batch_size)
     results = {}
     if eval_ppl:
-        for dataset in ["wikitext2", "ptb", "c4"]:
+        for dataset in eval_ppl.split(","):
             # for dataset in ['c4']:
             if "opt" in model_name:
                 cache_testloader = f"/tmp/{dataset}_testloader_opt_all.cache"
@@ -119,6 +120,7 @@ def evaluate_model(
                 else:
                     dataloader, testloader = get_loaders(
                         dataset,
+                        tokenizer,
                         seed=seed,
                         model=model_name,
                         seqlen=lm.seqlen,
@@ -133,6 +135,7 @@ def evaluate_model(
                 else:
                     dataloader, testloader = get_loaders(
                         dataset,
+                        tokenizer,
                         seed=seed,
                         model=model_name,
                         seqlen=lm.seqlen,
@@ -154,7 +157,6 @@ def evaluate_model(
             nlls = []
 
             for i in tqdm(range(nsamples)):
-                print(lm.device)
                 batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(
                     lm.device
                 )
@@ -208,11 +210,14 @@ def evaluate_model(
             limit=None if limit == -1 else limit,
             no_cache=True,
         )
+        t_results = t_results["results"]
+        acc_list = [
+            t_results[key]["acc"] for key in t_results.keys() if "acc" in t_results[key]
+        ]
+        t_results["mean"] = sum(acc_list) / len(acc_list)
         results.update(t_results)
         print(results)
-    results = results["results"]
-    acc_list = [results[key]["acc"] for key in results.keys() if "acc" in results[key]]
-    # print mean
-    print(f"\n\n===== mean acc: {sum(acc_list)/len(acc_list)} =====\n\n")
-    results["mean"] = sum(acc_list) / len(acc_list)
+        # print mean
+        print(f"\n\n===== mean acc: {sum(acc_list)/len(acc_list)} =====\n\n")
+
     return results

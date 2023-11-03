@@ -49,7 +49,7 @@ def get_qat_dataset(name, tokenizer, data_percent):
     return data
 
 
-def get_wikitext2(nsamples, seed, seqlen, model, cache_dir):
+def get_wikitext2(tokenizer, nsamples, seed, seqlen, model, cache_dir):
     print("get_wikitext2")
     from datasets import load_dataset
 
@@ -66,15 +66,6 @@ def get_wikitext2(nsamples, seed, seqlen, model, cache_dir):
         split="test",
     )
 
-    from transformers import AutoTokenizer
-
-    if "llama" in model:
-        tokenizer = AutoTokenizer.from_pretrained(cache_dir, use_fast=False)
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model, cache_dir=cache_dir, use_fast=False
-        )
-
     trainenc = tokenizer("\n\n".join(traindata["text"]), return_tensors="pt")
     testenc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt")
 
@@ -90,7 +81,7 @@ def get_wikitext2(nsamples, seed, seqlen, model, cache_dir):
     return trainloader, testenc
 
 
-def get_ptb(nsamples, seed, seqlen, model, cache_dir):
+def get_ptb(tokenizer, nsamples, seed, seqlen, model, cache_dir):
     print("get_ptb")
     from datasets import load_dataset
 
@@ -106,16 +97,6 @@ def get_ptb(nsamples, seed, seqlen, model, cache_dir):
         cache_dir=f"{cache_dir}/ptb_text_only/",
         split="validation",
     )
-
-    from transformers import AutoTokenizer
-
-    if "llama" in model:
-        tokenizer = AutoTokenizer.from_pretrained(cache_dir, use_fast=False)
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model, cache_dir=cache_dir, use_fast=False
-        )
-
     trainenc = tokenizer("\n\n".join(traindata["sentence"]), return_tensors="pt")
     testenc = tokenizer("\n\n".join(valdata["sentence"]), return_tensors="pt")
 
@@ -169,7 +150,7 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     return traindataset
 
 
-def get_c4(nsamples, seed, seqlen, model, cache_dir):
+def get_c4(tokenizer, nsamples, seed, seqlen, model, cache_dir):
     print("get_c4")
 
     traindata = load_dataset(
@@ -186,16 +167,6 @@ def get_c4(nsamples, seed, seqlen, model, cache_dir):
         data_files={"validation": "en/c4-validation.00000-of-00008.json.gz"},
         split="validation",
     )
-
-    from transformers import AutoTokenizer
-
-    if "llama" in model:
-        tokenizer = AutoTokenizer.from_pretrained(cache_dir, use_fast=False)
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model, cache_dir=cache_dir, use_fast=False
-        )
-
     import random
 
     random.seed(seed)
@@ -235,23 +206,13 @@ def get_c4(nsamples, seed, seqlen, model, cache_dir):
     return trainloader, valenc
 
 
-def get_loaders(name, nsamples=128, seed=0, seqlen=2048, model="", cache_dir=""):
+def get_loaders(
+    name, tokenizer, nsamples=128, seed=0, seqlen=2048, model="", cache_dir=""
+):
     if "wikitext2" in name:
-        return get_wikitext2(nsamples, seed, seqlen, model, cache_dir)
+        return get_wikitext2(tokenizer, nsamples, seed, seqlen, model, cache_dir)
     if "ptb" in name:
-        return get_ptb(nsamples, seed, seqlen, model, cache_dir)
+        return get_ptb(tokenizer, nsamples, seed, seqlen, model, cache_dir)
     if "c4" in name:
-        return get_c4(nsamples, seed, seqlen, model, cache_dir)
-    if "mix" in name:
-        wiki_train, wiki_val = get_wikitext2(
-            nsamples // 3 + (nsamples - nsamples // 3 * 3),
-            seed,
-            seqlen,
-            model,
-            cache_dir,
-        )
-        ptb_train, ptb_val = get_ptb(nsamples // 3, seed, seqlen, model, cache_dir)
-        c4_train, c4_val = get_c4(nsamples // 3, seed, seqlen, model, cache_dir)
-        train = wiki_train + ptb_train + c4_train
-        val = None
-        return train, val
+        return get_c4(tokenizer, nsamples, seed, seqlen, model, cache_dir)
+    raise NotImplementedError
