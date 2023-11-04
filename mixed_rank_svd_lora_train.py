@@ -13,13 +13,16 @@ from transformers import (
 from trl import SFTTrainer
 
 # from transformers import LlamaTokenizer, LlamaForCausalLM
+from peft import PeftModel, LoraConfig, TaskType, get_peft_model
 from datasets import load_dataset
 
 from evaluate import evaluate_model
+from modules.svd_lora_linear import SVDLoRALinear
 from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
-
 from utils import print_gpu_memory
 from datautils import get_calib_data
+import json
+from tqdm import tqdm
 
 
 def calib_input_distribution(model, calib_loader):
@@ -36,29 +39,64 @@ def calib_input_distribution(model, calib_loader):
             module.register_forward_hook(hook)
 
     # get activation distribution
-    for batch in calib_loader:
+    for batch in tqdm(calib_loader):
         # print(batch)
         batch = {k: v.to(model.device) for k, v in batch.items()}
         model(**batch)
 
+    # remove hook
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module._forward_hooks.clear()
 
-def act_aware_convert_linear_to_svd_lora_linear(
-    module, rank_compress_ratio, lora_method
-):
-    for name, submodule in module.named_children():
-        if isinstance(submodule, nn.Linear):
-            if "lora" not in name:
-                svd_linear = ActAwareSVDLoRALinear.from_linear(
-                    submodule,
-                    r_ratio=rank_compress_ratio,
-                    lora_method=lora_method,
+
+def convert_linear_to_svd_lora_linear(module, args):
+    # load json
+    layer_sensitivities = {}
+    all_ppls = []
+    with open(args.sensitivity_json) as f:
+        for l in f.readlines():
+            # format {'wikitext2': 35.48416519165039, 'mean': 0.52, 'rank_ratio': 0.1, 'full_name': 'model.decoder.layers.11.fc1'},
+            d = eval(l)[0]
+            layer_name = d["full_name"]
+            wiki_ppl = d["wikitext2"]
+            rank_ratio = d["rank_ratio"]
+            all_ppls.append(wiki_ppl)
+            if layer_name not in layer_sensitivities:
+                layer_sensitivities[layer_name] = {1: -1}
+            layer_sensitivities[layer_name][rank_ratio] = wiki_ppl
+    ppl_thresh = args.ppl_thresh
+    layer_ratio_settings = {}
+    for layer_name, layer_data in layer_sensitivities.items():
+        ratios = []
+        for rank_ratio, ppl in layer_data.items():
+            if ppl < ppl_thresh:
+                ratios.append(rank_ratio)
+        ratio = min(ratios)
+        layer_ratio_settings[layer_name] = ratio
+
+    full_name_dict = {module: name for name, module in module.named_modules()}
+    modules = [module]
+    while len(modules) > 0:
+        submodule = modules.pop()
+        for name, child in submodule.named_children():
+            if isinstance(child, nn.Linear):
+                full_name = full_name_dict[child]
+                rank_ratio = layer_ratio_settings[full_name]
+                if rank_ratio == 1:
+                    print(f"skip {full_name} to svd_lora_linear ratio={rank_ratio}")
+                    continue
+                svd_linear = SVDLoRALinear.from_linear(
+                    child,
+                    r_ratio=rank_ratio,
+                    lora_method=args.lora_method,
+                    act_aware=args.act_aware,
                 )
-                del submodule.weight
-                setattr(module, name, svd_linear)
-        else:
-            act_aware_convert_linear_to_svd_lora_linear(
-                submodule, rank_compress_ratio, lora_method
-            )
+                del child.weight
+                setattr(submodule, name, svd_linear)
+                print(f"convert {full_name} to svd_lora_linear ratio={rank_ratio}")
+            else:
+                modules.append(child)
 
 
 def total_model_parameters_buffers(model):
@@ -68,9 +106,22 @@ def total_model_parameters_buffers(model):
 
 
 def train(model, tokenizer, train_dataset, args):
+    # LoRA Config
+    if args.lora_method == "reconstruct":
+        peft_parameters = LoraConfig(
+            lora_alpha=64,
+            lora_dropout=0.1,
+            r=32,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "v_proj"],
+        )
+    else:
+        peft_parameters = None
     # Training Params
+    output_dir = f"./output/{args.model_id.replace('/','_')}_svd_lora_train_{args.lora_method}_{args.msa_rank_ratio}_{args.mlp_rank_ratio}"
     train_params = TrainingArguments(
-        output_dir=f"./output/{args.model_id.replace('/','_')}_act_aware_{args.lora_method}_{args.rank_compress_ratio}",
+        output_dir=output_dir,
         num_train_epochs=1,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=8,
@@ -96,10 +147,16 @@ def train(model, tokenizer, train_dataset, args):
         dataset_text_field="text",
         tokenizer=tokenizer,
         args=train_params,
+        peft_config=peft_parameters,
     )
 
     # Training
     fine_tuning.train()
+    fine_tuning.model.save_pretrained(output_dir)
+    if args.lora_method == "reconstruct":
+        model = PeftModel.from_pretrained(model, output_dir)
+        model = model.merge_and_unload()
+        model.save_pretrained(os.path.join(output_dir, "final_merged"))
 
 
 def main(args):
@@ -123,16 +180,15 @@ def main(args):
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
+    model = model.to_bettertransformer()
     raw_model_parameters, raw_model_buffers = total_model_parameters_buffers(model)
     print("raw model tot: {}".format(raw_model_parameters + raw_model_buffers))
+    if args.act_aware:
+        cablib_dataset = "wikitext2"
+        calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
+        calib_input_distribution(model, calib_loader)
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    cablib_dataset = "wikitext2"
-    calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-    calib_input_distribution(model, calib_loader)
-    act_aware_convert_linear_to_svd_lora_linear(
-        model, args.rank_compress_ratio, args.lora_method
-    )
-
+    convert_linear_to_svd_lora_linear(model, args)
     torch.cuda.empty_cache()
     print_gpu_memory("after convert_linear_to_svd_lora_linear")
 
@@ -149,8 +205,8 @@ def main(args):
     # train_dataset = get_qat_dataset(training_data, llama_tokenizer, 256)
     data_name = "tatsu-lab/alpaca"
     # data_name = 'timdettmers/openassistant-guanaco'
-    training_dataset = load_dataset(data_name, split="train")
-    train(model, tokenizer, training_dataset, args)
+    # training_dataset = load_dataset(data_name, split="train")
+    # train(model, tokenizer, training_dataset, args)
 
     model_merged = model
     query = "### Human: I am depressed, what should I do?"
@@ -170,7 +226,7 @@ def main(args):
         model_id,
         "llmqat",
         limit=200,
-        eval_ppl=True,
+        eval_ppl="wikitext2",
         num_fewshot=0,
     )
 
@@ -184,16 +240,25 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--rank_compress_ratio",
+        "--sensitivity_json",
+        type=str,
+        help="sensitivity json file",
+    )
+    parser.add_argument(
+        "--ppl_thresh",
         type=float,
-        default=0.2,
-        help="for svd, default: 0.17",
+        default=-1,
+    )
+    parser.add_argument(
+        "--act_aware",
+        action="store_true",
+        help="use act aware svd lora",
     )
     parser.add_argument(
         "--lora_method",
         type=str,
-        default="UV",
-        help="lora method, default: UV",
+        default="reconstruct",
+        help="lora method",
     )
     args = parser.parse_args()
 

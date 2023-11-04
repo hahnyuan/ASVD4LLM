@@ -112,36 +112,26 @@ def evaluate_model(
     if eval_ppl:
         for dataset in eval_ppl.split(","):
             # for dataset in ['c4']:
-            if "opt" in model_name:
-                cache_testloader = f"/tmp/{dataset}_testloader_opt_all.cache"
-                if os.path.exists(cache_testloader):
-                    testloader = torch.load(cache_testloader)
-                    # print(f"load calibration from {cache_testloader}")
-                else:
-                    dataloader, testloader = get_loaders(
-                        dataset,
-                        tokenizer,
-                        seed=seed,
-                        model=model_name,
-                        seqlen=lm.seqlen,
-                        cache_dir=cache_dir,
-                    )
-                    torch.save(testloader, cache_testloader)
-            elif "llama" in model_name:
-                cache_testloader = f"/tmp/{dataset}_testloader_llama_all.cache"
-                if os.path.exists(cache_testloader):
-                    testloader = torch.load(cache_testloader)
-                    # print(f"load calibration from {cache_testloader}")
-                else:
-                    dataloader, testloader = get_loaders(
-                        dataset,
-                        tokenizer,
-                        seed=seed,
-                        model=model_name,
-                        seqlen=lm.seqlen,
-                        cache_dir=cache_dir,
-                    )
-                    torch.save(testloader, cache_testloader)
+            if "huggyllama/llama" in model_name:
+                model_type = "llama"
+            elif "facebook/opt" in model_name:
+                model_type = "opt"
+            else:
+                raise NotImplementedError
+            cache_testloader = f"/tmp/{dataset}_testloader_{model_type}_all.cache"
+            if os.path.exists(cache_testloader):
+                testloader = torch.load(cache_testloader)
+                # print(f"load calibration from {cache_testloader}")
+            else:
+                dataloader, testloader = get_loaders(
+                    dataset,
+                    tokenizer,
+                    seed=seed,
+                    model=model_name,
+                    seqlen=lm.seqlen,
+                    cache_dir=cache_dir,
+                )
+                torch.save(testloader, cache_testloader)
             # print(dataset)
             if "c4" == dataset:
                 testenc = testloader

@@ -20,7 +20,8 @@ from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
 from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
 from utils import print_gpu_memory
-from datautils import get_calib_data
+from datautils import get_calib_data, sample_train_loaders
+import tqdm
 
 
 @torch.no_grad()
@@ -38,15 +39,22 @@ def calib_input_distribution(model, calib_loader):
             module.register_forward_hook(hook)
 
     # get activation distribution
-    for batch in calib_loader:
+    print("get activation distribution")
+    for batch in tqdm.tqdm(calib_loader):
         # print(batch)
         batch = {k: v.to(model.device) for k, v in batch.items()}
         model(**batch)
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            # clear hooks
+            module._forward_hooks.clear()
 
 
 def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
     modules = [model]
+    trainloader = sample_train_loaders()
     while len(modules) > 0:
         submodule = modules.pop()
         for name, child in submodule.named_children():
@@ -106,8 +114,7 @@ def main(args):
 
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
 
-    model.config.use_cache = False
-    model.config.pretraining_tp = 1
+    model = model.to_bettertransformer()
 
     raw_model_parameters, raw_model_buffers = total_model_parameters_buffers(model)
     print("raw model tot: {}".format(raw_model_parameters + raw_model_buffers))

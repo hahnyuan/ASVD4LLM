@@ -36,6 +36,13 @@ CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity.py --model_id="facebook/
 
 CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct"
 
+CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct" --act_aware
+
 CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity.py --model_id="huggyllama/llama-7b" --lora_method "reconstruct"
 
 CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware
+
+CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware
+
+# Mixed rank
+CUDA_VISIBLE_DEVICES='3' python mixed_rank_svd_lora_train.py --model_id="facebook/opt-125m" --sensitivity_json output/sensitivity_facebook_opt-125m_True.json --ppl_thresh 29 --act_aware --lora_method "reconstruct"

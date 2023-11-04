@@ -127,8 +127,6 @@ def train(model, tokenizer, train_dataset, args):
         model = PeftModel.from_pretrained(model, output_dir)
         model = model.merge_and_unload()
         model.save_pretrained(os.path.join(output_dir, "final_merged"))
-        
-    
 
 
 def main(args):
@@ -197,7 +195,7 @@ def main(args):
         model_id,
         "llmqat",
         limit=200,
-        eval_ppl=True,
+        eval_ppl="",
         num_fewshot=0,
     )
 

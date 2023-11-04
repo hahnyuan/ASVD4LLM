@@ -15,6 +15,39 @@ def set_seed(seed):
     torch.random.manual_seed(seed)
 
 
+def sample_train_loaders(name, tokenizer, nsamples=128, seed=0, seqlen=2048):
+    set_seed(seed)
+    if "wikitext2" in name:
+        traindata = load_dataset(
+            "wikitext",
+            "wikitext-2-raw-v1",
+            split="train",
+        )
+        traindata = "\n\n".join(traindata["text"])
+    elif "c4" in name:
+        traindata = load_dataset(
+            "allenai/c4",
+            "allenai--c4",
+            data_files={"train": "en/c4-train.00000-of-01024.json.gz"},
+            split="train",
+        )
+        traindata = "\n\n".join(traindata["text"])
+    else:
+        raise NotImplementedError
+
+    trainloader = []
+    for _ in range(nsamples):
+        i = random.randint(0, len(traindata) - seqlen * 2 - 1)
+        j = i + seqlen * 2
+        # breakpoint()
+        trainenc = tokenizer(traindata[i:j], return_tensors="pt")
+        inp = trainenc.input_ids[:, :seqlen]
+        tar = inp.clone()
+        tar[:, :-1] = -100
+        trainloader.append((inp, tar))
+    return trainloader
+
+
 def get_redpajama_train(tokenizer, percent=10, seed=3, batch_size=128, max_length=2048):
     def tokenization(example):
         return tokenizer(example["text"], truncation=True, max_length=max_length)
@@ -51,7 +84,6 @@ def get_qat_dataset(name, tokenizer, data_percent):
 
 def get_wikitext2(tokenizer, nsamples, seed, seqlen, model, cache_dir):
     print("get_wikitext2")
-    from datasets import load_dataset
 
     traindata = load_dataset(
         "wikitext",
