@@ -23,6 +23,7 @@ from utils import print_gpu_memory
 from datautils import get_calib_data
 
 
+@torch.no_grad()
 def calib_input_distribution(model, calib_loader):
     model.eval()
     # set hook for every Linear layers
@@ -51,7 +52,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
         for name, child in submodule.named_children():
             if isinstance(child, nn.Linear):
                 full_name = full_name_dict[child]
-                for rank_ratio in [0.1, 0.2, 0.3, 0.4, 0.5]:
+                for rank_ratio in [0.01, 0.02, 0.05]:
                     svd_linear = SVDLoRALinear.from_linear(
                         child,
                         r_ratio=rank_ratio,
@@ -64,11 +65,11 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                         model,
                         tokenizer,
                         args.model_id,
-                        "boolq",
+                        "",
                         eval_ppl="wikitext2",
                         limit=200,
                     )
-                    del result["boolq"]
+                    # del result["boolq"]
                     result.update({"rank_ratio": rank_ratio, "full_name": full_name})
                     with open(
                         f"output/sensitivity_{args.model_id.replace('/','_')}_{args.act_aware}.json",

@@ -65,16 +65,17 @@ def get_wikitext2(tokenizer, nsamples, seed, seqlen, model, cache_dir):
         cache_dir=f"{cache_dir}/wikitext/",
         split="test",
     )
-
-    trainenc = tokenizer("\n\n".join(traindata["text"]), return_tensors="pt")
+    traindata = "\n\n".join(traindata["text"])
+    # trainenc = tokenizer(, return_tensors="pt")
     testenc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt")
 
     random.seed(seed)
     trainloader = []
     for _ in range(nsamples):
-        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
-        j = i + seqlen
-        inp = trainenc.input_ids[:, i:j]
+        i = random.randint(0, len(traindata) - seqlen * 2 - 1)
+        j = i + seqlen * 2
+        trainenc = tokenizer(traindata[i:j], return_tensors="pt")
+        inp = trainenc.input_ids[:, :seqlen]
         tar = inp.clone()
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
@@ -97,7 +98,8 @@ def get_ptb(tokenizer, nsamples, seed, seqlen, model, cache_dir):
         cache_dir=f"{cache_dir}/ptb_text_only/",
         split="validation",
     )
-    trainenc = tokenizer("\n\n".join(traindata["sentence"]), return_tensors="pt")
+    traindata = "\n\n".join(traindata["sentence"])
+    # trainenc = tokenizer("\n\n".join(traindata["sentence"]), return_tensors="pt")
     testenc = tokenizer("\n\n".join(valdata["sentence"]), return_tensors="pt")
 
     import random
@@ -105,9 +107,10 @@ def get_ptb(tokenizer, nsamples, seed, seqlen, model, cache_dir):
     random.seed(seed)
     trainloader = []
     for _ in range(nsamples):
-        i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
-        j = i + seqlen
-        inp = trainenc.input_ids[:, i:j]
+        i = random.randint(0, len(traindata) - seqlen * 2 - 1)
+        j = i + seqlen * 2
+        trainenc = tokenizer(traindata[i:j], return_tensors="pt")
+        inp = trainenc.input_ids[:, :seqlen]
         tar = inp.clone()
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
