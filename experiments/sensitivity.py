@@ -24,23 +24,25 @@ from datautils import get_calib_data, sample_train_loaders
 import tqdm
 from svd_init_utils import calib_input_distribution
 
+
 def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
     modules = [model]
-    trainloader = sample_train_loaders()
     while len(modules) > 0:
         submodule = modules.pop()
         for name, child in submodule.named_children():
             if isinstance(child, nn.Linear):
                 full_name = full_name_dict[child]
-                for compression_ratio in [0.01, 0.02, 0.05]:
+                for compression_ratio in [0.1, 0.2, 0.4, 0.6, 0.8]:
                     svd_linear = SVDLoRALinear.from_linear(
                         child,
                         compression_ratio=compression_ratio,
                         lora_method=args.lora_method,
                         act_aware=args.act_aware,
                     )
-                    print(f"convert {full_name} to svd_lora_linear ratio={compression_ratio}")
+                    print(
+                        f"convert {full_name} to svd_lora_linear ratio={compression_ratio}"
+                    )
                     setattr(submodule, name, svd_linear)
                     result = evaluate_model(
                         model,
@@ -51,8 +53,10 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                         limit=50,
                     )
                     # del result["boolq"]
-                    result.update({"compression_ratio": compression_ratio, "full_name": full_name})
-                    path=f"output/{args.model_id.replace('/','_')}"
+                    result.update(
+                        {"compression_ratio": compression_ratio, "full_name": full_name}
+                    )
+                    path = f"output/{args.model_id.replace('/','_')}"
                     if not os.path.exists(path):
                         os.makedirs(path)
                     with open(

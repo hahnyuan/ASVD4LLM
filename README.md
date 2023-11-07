@@ -29,15 +29,17 @@ CUDA_VISIBLE_DEVICES='0' python tools/eval_checkpoint.py --model_id="facebook/op
 
 output/facebook_opt-1.3b_svd_lora_train_reconstruct_0.3_0.1/checkpoint-3000
 
-CUDA_VISIBLE_DEVICES='2' python tools/eval_checkpoint.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct" --path="tmp/LLM_PEFT/svd_peft/checkpoints/llama-7b-svdlora/final_merged"
+CUDA_VISIBLE_DEVICES='2' python tools/eval_checkpoint.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct" --path="output/facebook_opt-1.3b_mixed_rank_UV_14.8_True"
 
 
 CUDA_VISIBLE_DEVICES='3' python tools/eval_checkpoint.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --path="output/facebook_opt-125m_mixed_rank_reconstruct_29.0_True/final_merged"
 
+
+
 # Sensitivity
 CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct"
 
-CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct"
+CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct"
 
 CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct" --act_aware
 
@@ -46,6 +48,8 @@ CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity.py --model_id="huggyllam
 CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware
 
 CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware
 
 # Mixed rank
 CUDA_VISIBLE_DEVICES='3' python mixed_rank_svd_lora_train.py --model_id="facebook/opt-125m" --sensitivity_json output/sensitivity_facebook_opt-125m_True.json --ppl_thresh 29 --act_aware --lora_method "reconstruct"
@@ -75,3 +79,6 @@ CUDA_VISIBLE_DEVICES='2' python experiments/single_block_sensitivity.py --model_
 CUDA_VISIBLE_DEVICES='0' python experiments/sequential_svd_rank_search.py --model_id="facebook/opt-125m" --layer_name model.decoder.layers.5. --sensitivity_json output/sensitivity_facebook_opt-125m_True.json --lora_method "reconstruct" --act_aware
 
 CUDA_VISIBLE_DEVICES='3' python experiments/sequential_svd_rank_search.py --model_id="facebook/opt-125m" --layer_name model.decoder.layers.9. --sensitivity_json output/sensitivity_facebook_opt-125m_True.json --lora_method "reconstruct" --act_aware
+
+# Greedy
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware --ppl_target 30
