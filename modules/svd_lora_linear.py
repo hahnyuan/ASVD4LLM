@@ -40,12 +40,17 @@ class SVDLoRALinear(nn.Module):
     @staticmethod
     def from_linear(
         linear: nn.Linear,
-        r_ratio: float,
+        compression_ratio: float,
         train_ratio: float = 0.5,
         lora_method="Uonly",
         act_aware=False,
     ):
-        rank = int(min(linear.weight.size()) * r_ratio)
+        n_params=linear.weight.numel()
+        compressed_params=int(n_params*compression_ratio)
+        # compressed_params=rank*(in_features+out_features)
+        # therefore, rank=compressed_params/(in_features+out_features)
+        rank=compressed_params//(linear.in_features+linear.out_features)
+        # rank = int(min(linear.weight.size()) * compression_ratio)
         if act_aware:
             input_abs_mean = linear.input_abs_mean
             input_abs_mean += 1e-6  # avoid zero division

@@ -22,34 +22,7 @@ from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 import tqdm
-
-
-@torch.no_grad()
-def calib_input_distribution(model, calib_loader):
-    model.eval()
-    # set hook for every Linear layers
-
-    def hook(module, input, output):
-        abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
-        module.input_abs_mean += abs_mean
-
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            module.input_abs_mean = 0
-            module.register_forward_hook(hook)
-
-    # get activation distribution
-    print("get activation distribution")
-    for batch in tqdm.tqdm(calib_loader):
-        # print(batch)
-        batch = {k: v.to(model.device) for k, v in batch.items()}
-        model(**batch)
-
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            # clear hooks
-            module._forward_hooks.clear()
-
+from svd_init_utils import calib_input_distribution
 
 def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
@@ -60,14 +33,14 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
         for name, child in submodule.named_children():
             if isinstance(child, nn.Linear):
                 full_name = full_name_dict[child]
-                for rank_ratio in [0.01, 0.02, 0.05]:
+                for compression_ratio in [0.01, 0.02, 0.05]:
                     svd_linear = SVDLoRALinear.from_linear(
                         child,
-                        r_ratio=rank_ratio,
+                        compression_ratio=compression_ratio,
                         lora_method=args.lora_method,
                         act_aware=args.act_aware,
                     )
-                    print(f"convert {full_name} to svd_lora_linear ratio={rank_ratio}")
+                    print(f"convert {full_name} to svd_lora_linear ratio={compression_ratio}")
                     setattr(submodule, name, svd_linear)
                     result = evaluate_model(
                         model,
@@ -75,12 +48,15 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                         args.model_id,
                         "",
                         eval_ppl="wikitext2",
-                        limit=200,
+                        limit=50,
                     )
                     # del result["boolq"]
-                    result.update({"rank_ratio": rank_ratio, "full_name": full_name})
+                    result.update({"compression_ratio": compression_ratio, "full_name": full_name})
+                    path=f"output/{args.model_id.replace('/','_')}"
+                    if not os.path.exists(path):
+                        os.makedirs(path)
                     with open(
-                        f"output/sensitivity_{args.model_id.replace('/','_')}_{args.act_aware}.json",
+                        f"{path}/sensitivity_linearwise_{args.act_aware}.json",
                         "a+",
                     ) as f:
                         f.write(str(result) + ",\n")
@@ -133,16 +109,6 @@ if __name__ == "__main__":
         type=str,
         default="facebook/opt-1.3b",
         help="Pretrained model ID",
-    )
-    parser.add_argument(
-        "--msa_rank_ratio",
-        type=float,
-        default=0.3,
-    )
-    parser.add_argument(
-        "--mlp_rank_ratio",
-        type=float,
-        default=0.1,
     )
     parser.add_argument(
         "--lora_method",

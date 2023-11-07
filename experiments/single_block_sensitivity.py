@@ -21,29 +21,35 @@ from modules.svd_lora_linear import SVDLoRALinear
 from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
 from utils import print_gpu_memory
 from datautils import get_calib_data
-
-
-def calib_input_distribution(model, calib_loader):
-    model.eval()
-    # set hook for every Linear layers
-
-    def hook(module, input, output):
-        abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
-        module.input_abs_mean += abs_mean
-
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            module.input_abs_mean = 0
-            module.register_forward_hook(hook)
-
-    # get activation distribution
-    for batch in calib_loader:
-        # print(batch)
-        batch = {k: v.to(model.device) for k, v in batch.items()}
-        model(**batch)
-
+import json
+from tqdm import tqdm
+from svd_init_utils import calib_input_distribution
 
 def convert_linear_to_svd_lora_linear(module, args):
+    # load json
+    layer_sensitivities = {}
+    all_ppls = []
+    with open(args.sensitivity_json) as f:
+        for l in f.readlines():
+            # format {'wikitext2': 35.48416519165039, 'mean': 0.52, 'rank_ratio': 0.1, 'full_name': 'model.decoder.layers.11.fc1'},
+            d = eval(l)[0]
+            layer_name = d["full_name"]
+            wiki_ppl = d["wikitext2"]
+            rank_ratio = d["rank_ratio"]
+            all_ppls.append(wiki_ppl)
+            if layer_name not in layer_sensitivities:
+                layer_sensitivities[layer_name] = {1: -1}
+            layer_sensitivities[layer_name][rank_ratio] = wiki_ppl
+    ppl_thresh = args.ppl_thresh
+    layer_ratio_settings = {}
+    for layer_name, layer_data in layer_sensitivities.items():
+        ratios = []
+        for rank_ratio, ppl in layer_data.items():
+            if ppl < ppl_thresh:
+                ratios.append(rank_ratio)
+        ratio = min(ratios)
+        layer_ratio_settings[layer_name] = ratio
+
     full_name_dict = {module: name for name, module in module.named_modules()}
     modules = [module]
     while len(modules) > 0:
@@ -51,11 +57,12 @@ def convert_linear_to_svd_lora_linear(module, args):
         for name, child in submodule.named_children():
             if isinstance(child, nn.Linear):
                 full_name = full_name_dict[child]
-                rank_ratio = (
-                    args.msa_rank_ratio
-                    if "self_attn" in full_name
-                    else args.mlp_rank_ratio
-                )
+                if args.layer_name not in full_name:
+                    continue
+                rank_ratio = layer_ratio_settings[full_name]
+                if rank_ratio == 1:
+                    print(f"skip {full_name} to svd_lora_linear ratio={rank_ratio}")
+                    continue
                 svd_linear = SVDLoRALinear.from_linear(
                     child,
                     compression_ratio=rank_ratio,
@@ -89,7 +96,7 @@ def train(model, tokenizer, train_dataset, args):
     else:
         peft_parameters = None
     # Training Params
-    output_dir = f"./output/{args.model_id.replace('/','_')}_svd_lora_train_{args.lora_method}_{args.msa_rank_ratio}_{args.mlp_rank_ratio}"
+    output_dir = f"./output/{args.model_id.replace('/','_')}_mixed_rank_{args.lora_method}_{args.ppl_thresh}_{args.act_aware}"
     train_params = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=1,
@@ -150,6 +157,7 @@ def main(args):
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
+    model = model.to_bettertransformer()
     raw_model_parameters, raw_model_buffers = total_model_parameters_buffers(model)
     print("raw model tot: {}".format(raw_model_parameters + raw_model_buffers))
     if args.act_aware:
@@ -174,8 +182,9 @@ def main(args):
     # train_dataset = get_qat_dataset(training_data, llama_tokenizer, 256)
     data_name = "tatsu-lab/alpaca"
     # data_name = 'timdettmers/openassistant-guanaco'
-    training_dataset = load_dataset(data_name, split="train")
-    train(model, tokenizer, training_dataset, args)
+    if 0:
+        training_dataset = load_dataset(data_name, split="train")
+        train(model, tokenizer, training_dataset, args)
 
     model_merged = model
     query = "### Human: I am depressed, what should I do?"
@@ -193,9 +202,9 @@ def main(args):
         model_merged,
         tokenizer,
         model_id,
-        "llmqat",
+        "boolq",
         limit=200,
-        eval_ppl="",
+        eval_ppl="wikitext2",
         num_fewshot=0,
     )
 
@@ -209,25 +218,26 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--msa_rank_ratio",
-        type=float,
-        default=0.3,
-    )
-    parser.add_argument(
-        "--mlp_rank_ratio",
-        type=float,
-        default=0.1,
-    )
-    parser.add_argument(
-        "--lora_method",
+        "--sensitivity_json",
         type=str,
-        default="UV",
-        help="lora method, default: UV",
+        help="sensitivity json file",
+    )
+    parser.add_argument('--layer_name',type=str,help='layer name')
+    parser.add_argument(
+        "--ppl_thresh",
+        type=float,
+        default=-1,
     )
     parser.add_argument(
         "--act_aware",
         action="store_true",
         help="use act aware svd lora",
+    )
+    parser.add_argument(
+        "--lora_method",
+        type=str,
+        default="reconstruct",
+        help="lora method",
     )
     args = parser.parse_args()
 

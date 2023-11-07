@@ -27,24 +27,25 @@ def main(args):
     model_id = args.model_id
 
     # Tokenizer
-    llama_tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    llama_tokenizer.pad_token = llama_tokenizer.eos_token
-    llama_tokenizer.padding_side = "right"  # Fix for fp16
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"  # Fix for fp16
 
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
-    convert_linear_to_svd_lora_linear(model, args)
-    if os.path.exists(args.path + "/pytorch_model.bin"):
-        state_dict = torch.load(args.path + "/pytorch_model.bin", map_location="cuda:0")
-        model.load_state_dict(state_dict)
-    else:
-        from peft import PeftModel
+    # convert_linear_to_svd_lora_linear(model, args)
+    if args.path:
+        if os.path.exists(args.path + "/pytorch_model.bin"):
+            state_dict = torch.load(args.path + "/pytorch_model.bin", map_location="cuda:0")
+            model.load_state_dict(state_dict)
+        else:
+            from peft import PeftModel
 
-        model = PeftModel.from_pretrained(model, args.path)
-        model = model.merge_and_unload()
-        model.save_pretrained(os.path.join(args.path, "final_merged"))
-        model = AutoModelForCausalLM.from_pretrained(
-            os.path.join(args.path, "final_merged")
-        )
+            model = PeftModel.from_pretrained(model, args.path)
+            model = model.merge_and_unload()
+            model.save_pretrained(os.path.join(args.path, "final_merged"))
+            model = AutoModelForCausalLM.from_pretrained(
+                os.path.join(args.path, "final_merged")
+            )
 
     model.eval()
 
@@ -56,7 +57,7 @@ def main(args):
     text_gen = pipeline(
         task="text-generation",
         model=model_merged,
-        tokenizer=llama_tokenizer,
+        tokenizer=tokenizer,
         max_length=200,
     )
     # output = text_gen(f"<s>[INST] {query} [/INST]")
@@ -65,11 +66,11 @@ def main(args):
     # evaluate_model(base_model, llama_tokenizer, base_model_name, 'llmqat', limit=200, eval_ppl=False)
     results = evaluate_model(
         model_merged,
-        llama_tokenizer,
+        tokenizer,
         model_id,
         "llmqat",
         limit=args.limit,
-        eval_ppl=False,
+        eval_ppl="wikitext2,ptb,c4",
         num_fewshot=0,
     )
     # save results to txt
@@ -77,7 +78,7 @@ def main(args):
         f.write(str(results))
     results = evaluate_model(
         model_merged,
-        llama_tokenizer,
+        tokenizer,
         model_id,
         "mmlu",
         limit=args.limit,
@@ -89,7 +90,7 @@ def main(args):
         f.write(str(results))
     results = evaluate_model(
         model_merged,
-        llama_tokenizer,
+        tokenizer,
         model_id,
         "mmlu",
         limit=args.limit,

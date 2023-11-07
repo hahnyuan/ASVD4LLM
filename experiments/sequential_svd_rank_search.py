@@ -21,52 +21,97 @@ from modules.svd_lora_linear import SVDLoRALinear
 from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
 from utils import print_gpu_memory
 from datautils import get_calib_data
+import json
+from tqdm import tqdm
+from svd_init_utils import calib_input_distribution
+    
+svd_linear_cache={}
+def transform_linear(child,rank_ratio):
+    if (child,rank_ratio) in svd_linear_cache:
+        return svd_linear_cache[(child,rank_ratio)]
+    else:
+        svd_linear = SVDLoRALinear.from_linear(
+                        child,
+                        compression_ratio=rank_ratio,
+                        lora_method='reconstruct',
+                        act_aware=True,
+                    )
+        svd_linear_cache[(child,rank_ratio)]=svd_linear
+        return svd_linear
 
+def fast_eval(model,tokenizer,args):
+    result = evaluate_model(
+                model,
+                tokenizer,
+                args.model_id,
+                "",
+                limit=200,
+                eval_ppl="wikitext2",
+                num_fewshot=0,
+            )
+    ppl=result['wikitext2']
+    return ppl
 
-def calib_input_distribution(model, calib_loader):
-    model.eval()
-    # set hook for every Linear layers
+def convert_linear_to_svd_lora_linear(model,tokenizer, args):
+    # load json
+    layer_sensitivities = {}
+    ppl_thresh = args.ppl_thresh
+    layer_ratio_settings = {}
+    for layer_name, layer_data in layer_sensitivities.items():
+        ratios = []
+        for rank_ratio, ppl in layer_data.items():
+            if ppl < ppl_thresh:
+                ratios.append(rank_ratio)
+        ratio = min(ratios)
+        layer_ratio_settings[layer_name] = ratio
 
-    def hook(module, input, output):
-        abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
-        module.input_abs_mean += abs_mean
-
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            module.input_abs_mean = 0
-            module.register_forward_hook(hook)
-
-    # get activation distribution
-    for batch in calib_loader:
-        # print(batch)
-        batch = {k: v.to(model.device) for k, v in batch.items()}
-        model(**batch)
-
-
-def convert_linear_to_svd_lora_linear(module, args):
-    full_name_dict = {module: name for name, module in module.named_modules()}
-    modules = [module]
+    full_name_dict = {module: name for name, module in model.named_modules()}
+    modules = [model]
+    transform_layers_and_fathers = []
     while len(modules) > 0:
         submodule = modules.pop()
         for name, child in submodule.named_children():
             if isinstance(child, nn.Linear):
                 full_name = full_name_dict[child]
-                rank_ratio = (
-                    args.msa_rank_ratio
-                    if "self_attn" in full_name
-                    else args.mlp_rank_ratio
-                )
-                svd_linear = SVDLoRALinear.from_linear(
-                    child,
-                    compression_ratio=rank_ratio,
-                    lora_method=args.lora_method,
-                    act_aware=args.act_aware,
-                )
-                del child.weight
-                setattr(submodule, name, svd_linear)
-                print(f"convert {full_name} to svd_lora_linear ratio={rank_ratio}")
+                if args.layer_name not in full_name:
+                    continue
+                transform_layers_and_fathers.append((child, submodule, name))
             else:
                 modules.append(child)
+    rank_ratio_candidates = [0.1,0.25,0.5, 0.75]
+    n_children=len(transform_layers_and_fathers)
+    # grid search with DFS
+    best_ppl = 100000
+    best_rank_ratios = None
+    stack=[(_,) for _ in rank_ratio_candidates]
+    while len(stack):
+        rank_ratios=stack.pop()
+        if len(rank_ratios)==n_children:
+            # evaluate
+            n_params=0
+            for (layer, father, name), rank_ratio in zip(transform_layers_and_fathers,rank_ratios):
+                new_linear=transform_linear(layer,rank_ratio)
+                setattr(father,name,new_linear)
+                rank = int(min(layer.weight.size()) * rank_ratio)
+                n_params+=rank*(layer.weight.size(0)+layer.weight.size(1))
+            ppl=fast_eval(model,tokenizer,args)
+            if ppl < best_ppl:
+                best_ppl = ppl
+                best_rank_ratios = rank_ratios
+            print(f"ppl={ppl}, rank_ratios={rank_ratios} ||| best_ppl={best_ppl}, best_rank_ratios={best_rank_ratios}")
+            # write to output/{model_id}_{layer_name}.json
+            with open(f"output/{args.model_id.replace('/','_')}_{args.layer_name}_ppl4.json",'a+') as f:
+                json.dump({'ppl':ppl,'rank_ratios':rank_ratios, 'n_params':n_params},f)
+                f.write('\n')
+        else:
+            for rank_ratio in rank_ratio_candidates:
+                stack.append((*rank_ratios,rank_ratio))
+
+    # set best rank ratios
+    for (layer, father, name), rank_ratio in zip(transform_layers_and_fathers,best_rank_ratios):
+        new_linear=transform_linear(layer,rank_ratio)
+        setattr(father,name,new_linear)
+
 
 
 def total_model_parameters_buffers(model):
@@ -89,7 +134,7 @@ def train(model, tokenizer, train_dataset, args):
     else:
         peft_parameters = None
     # Training Params
-    output_dir = f"./output/{args.model_id.replace('/','_')}_svd_lora_train_{args.lora_method}_{args.msa_rank_ratio}_{args.mlp_rank_ratio}"
+    output_dir = f"./output/{args.model_id.replace('/','_')}_mixed_rank_{args.lora_method}_{args.ppl_thresh}_{args.act_aware}"
     train_params = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=1,
@@ -150,6 +195,7 @@ def main(args):
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
+    model = model.to_bettertransformer()
     raw_model_parameters, raw_model_buffers = total_model_parameters_buffers(model)
     print("raw model tot: {}".format(raw_model_parameters + raw_model_buffers))
     if args.act_aware:
@@ -157,7 +203,7 @@ def main(args):
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, args)
+    convert_linear_to_svd_lora_linear(model, tokenizer, args)
     torch.cuda.empty_cache()
     print_gpu_memory("after convert_linear_to_svd_lora_linear")
 
@@ -174,8 +220,9 @@ def main(args):
     # train_dataset = get_qat_dataset(training_data, llama_tokenizer, 256)
     data_name = "tatsu-lab/alpaca"
     # data_name = 'timdettmers/openassistant-guanaco'
-    training_dataset = load_dataset(data_name, split="train")
-    train(model, tokenizer, training_dataset, args)
+    if 0:
+        training_dataset = load_dataset(data_name, split="train")
+        train(model, tokenizer, training_dataset, args)
 
     model_merged = model
     query = "### Human: I am depressed, what should I do?"
@@ -193,9 +240,9 @@ def main(args):
         model_merged,
         tokenizer,
         model_id,
-        "llmqat",
+        "boolq",
         limit=200,
-        eval_ppl="",
+        eval_ppl="wikitext2",
         num_fewshot=0,
     )
 
@@ -209,25 +256,26 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--msa_rank_ratio",
-        type=float,
-        default=0.3,
-    )
-    parser.add_argument(
-        "--mlp_rank_ratio",
-        type=float,
-        default=0.1,
-    )
-    parser.add_argument(
-        "--lora_method",
+        "--sensitivity_json",
         type=str,
-        default="UV",
-        help="lora method, default: UV",
+        help="sensitivity json file",
+    )
+    parser.add_argument('--layer_name',type=str,help='layer name')
+    parser.add_argument(
+        "--ppl_thresh",
+        type=float,
+        default=-1,
     )
     parser.add_argument(
         "--act_aware",
         action="store_true",
         help="use act aware svd lora",
+    )
+    parser.add_argument(
+        "--lora_method",
+        type=str,
+        default="reconstruct",
+        help="lora method",
     )
     args = parser.parse_args()
 

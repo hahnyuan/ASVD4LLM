@@ -6,6 +6,7 @@ import os
 from datautils import get_loaders
 from lm_eval.base import BaseLM
 from lm_eval import evaluator
+from datasets import load_dataset
 import time
 
 
@@ -87,6 +88,38 @@ class EvalLM(BaseLM):
         )
 
 
+_fast_eval_ppl_wiki2_cache = {}
+
+
+@torch.no_grad()
+def fast_eval_ppl_wiki2(model, tokenizer, nsample, seqlen, batchsize=1):
+    if tokenizer in _fast_eval_ppl_wiki2_cache:
+        testenc = _fast_eval_ppl_wiki2_cache[tokenizer]
+    else:
+        testdata = load_dataset(
+            "wikitext",
+            "wikitext-2-raw-v1",
+            split="test",
+        )
+        testenc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt")[
+            "input_ids"
+        ]
+        # concated length 1294336
+        _fast_eval_ppl_wiki2_cache[tokenizer] = testenc
+    # split testenc into batch
+    # remove tail
+    testenc = testenc[
+        :, : (testenc.size(1) // (seqlen * batchsize)) * seqlen * batchsize
+    ]
+    testenc = testenc.view(-1, seqlen)
+    for i in tqdm(range(nsample // batchsize)):
+        batch = testenc[i].to(model.device)
+        breakpoint()
+        outputs = model.model(batch)
+        hidden_states = outputs[0]
+        logits = model.model.lm_head(hidden_states)
+
+
 @torch.no_grad()
 def evaluate_model(
     model,
@@ -147,13 +180,16 @@ def evaluate_model(
             nlls = []
 
             for i in tqdm(range(nsamples)):
-                batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(
+                input_ids = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(
                     lm.device
                 )
+                # outputs = model(input_ids, labels=input_ids)
+                # nlls.append(outputs.loss)
+                
                 if "opt" in model_name:
                     # model = lm.model.model.decoder.to(lm.device)
                     model = lm.model.model.to(lm.device)
-                    batch = batch.to(lm.device)
+                    batch = input_ids.to(lm.device)
                     outputs = model(batch)
                     # outputs = lm.model.model.decoder(batch)
                 elif "llama" in model_name:
@@ -181,8 +217,8 @@ def evaluate_model(
                         "max memory_allocated",
                         torch.cuda.max_memory_allocated() / 1024**2,
                     )
-
-            ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * lm.seqlen))
+            
+            ppl = torch.exp(torch.stack(nlls).sum() / (len(nlls) * lm.seqlen))
             print(dataset, ppl.item())
             lm.model.config.use_cache = use_cache
             # pprint(model)
