@@ -18,13 +18,15 @@ class SVDLoRALinear(nn.Module):
             u_rank = rank
             v_rank = 0
         elif lora_method == "UV":
-            u_rank = train_rank
-            v_rank = train_rank
+            u_rank = rank-train_rank
+            v_rank = rank-train_rank 
         elif lora_method == "UVall":
             u_rank = 0
             v_rank = 0
         else:
             raise ValueError(f"lora_method {lora_method} not supported")
+        U=U*S.sqrt()
+        V=V*S.sqrt()
         U_fix = U[:, :u_rank]
         self.register_buffer("U_fix", U_fix)
         self.U_train = nn.Parameter(U[:, u_rank:])
@@ -40,13 +42,13 @@ class SVDLoRALinear(nn.Module):
     @staticmethod
     def from_linear(
         linear: nn.Linear,
-        compression_ratio: float,
+        n_param_ratio: float,
         train_ratio: float = 0.5,
         lora_method="Uonly",
         act_aware=False,
     ):
         n_params = linear.weight.numel()
-        compressed_params = int(n_params * compression_ratio)
+        compressed_params = int(n_params * n_param_ratio)
         # compressed_params=rank*(in_features+out_features)
         # therefore, rank=compressed_params/(in_features+out_features)
         rank = compressed_params // (linear.in_features + linear.out_features)
@@ -101,7 +103,7 @@ class SVDLoRALinear(nn.Module):
         V = torch.cat([self.V_fix, self.V_train], dim=1)
         U = torch.cat([self.U_fix, self.U_train], dim=1)
         x = F.linear(x, V.t(), bias=None)
-        x = x * self.S
+        # x = x * self.S
         x = F.linear(x, U, bias=None)
         if self.bias is not None:
             x = x + self.bias

@@ -3,7 +3,7 @@ import torch.nn as nn
 from tqdm import tqdm
 import os
 
-from datautils import get_loaders
+from datautils import get_eval_loaders
 from lm_eval.base import BaseLM
 from lm_eval import evaluator
 from datasets import load_dataset
@@ -156,7 +156,7 @@ def evaluate_model(
                 testloader = torch.load(cache_testloader)
                 # print(f"load calibration from {cache_testloader}")
             else:
-                dataloader, testloader = get_loaders(
+                testloader = get_eval_loaders(
                     dataset,
                     tokenizer,
                     seed=seed,
@@ -189,7 +189,7 @@ def evaluate_model(
                 shift_logits = logits[:, :-1, :]  # .contiguous()
                 shift_labels = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)][
                     :, 1:
-                ].to(lm.model.lm_head.weight.device)
+                ].to(lm.device)
                 loss_fct = nn.CrossEntropyLoss()
                 loss = loss_fct(
                     shift_logits.view(-1, shift_logits.size(-1)),

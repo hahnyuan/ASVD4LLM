@@ -36,7 +36,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 for compression_ratio in [0.1, 0.2, 0.4, 0.6, 0.8]:
                     svd_linear = SVDLoRALinear.from_linear(
                         child,
-                        compression_ratio=compression_ratio,
+                        n_param_ratio=compression_ratio,
                         lora_method=args.lora_method,
                         act_aware=args.act_aware,
                     )

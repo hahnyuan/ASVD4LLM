@@ -59,13 +59,15 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
             father_name=father_name[0]
         else:
             continue
-        if ratio<1:
-            svd_linear = SVDLoRALinear.from_linear(
+        svd_linear = SVDLoRALinear.from_linear(
                 raw_linear,
-                compression_ratio=ratio,
+                n_param_ratio=ratio,
                 lora_method=args.lora_method,
                 act_aware=args.act_aware,
             )
+        setattr(submodule, name, svd_linear)
+        if 0 and ratio<1:
+            
             rebuild_weight=svd_linear.rebuild_weight()
             diff=raw_linear.weight-rebuild_weight
             diff_mean_inc=torch.mean(diff,dim=0)

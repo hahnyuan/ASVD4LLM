@@ -47,7 +47,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
         else:
             svd_linear = SVDLoRALinear.from_linear(
                 raw_linear,
-                compression_ratio=ratio,
+                n_param_ratio=ratio,
                 lora_method=args.lora_method,
                 act_aware=args.act_aware,
             )

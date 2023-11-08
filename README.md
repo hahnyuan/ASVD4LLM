@@ -81,24 +81,30 @@ CUDA_VISIBLE_DEVICES='0' python experiments/sequential_svd_rank_search.py --mode
 CUDA_VISIBLE_DEVICES='3' python experiments/sequential_svd_rank_search.py --model_id="facebook/opt-125m" --layer_name model.decoder.layers.9. --sensitivity_json output/sensitivity_facebook_opt-125m_True.json --lora_method "reconstruct" --act_aware
 
 # Greedy
-CUDA_VISIBLE_DEVICES='0' python experiments/greedy.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware --ppl_target_st 29 --ppl_target_ed 40
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware --ppl_target_st 30 --ppl_target_ed 40
 
 CUDA_VISIBLE_DEVICES='2' python experiments/greedy.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware --ppl_target_st 30 --ppl_target_ed 35
 
-CUDA_VISIBLE_DEVICES='3' python experiments/greedy.py --model_id="facebook/opt-1.3b" --lora_method "reconstruct" --act_aware --ppl_target_st 15.1 --ppl_target_ed 20
+CUDA_VISIBLE_DEVICES='1' python experiments/greedy.py --model_id="facebook/opt-1.3b" --lora_method "UV" --act_aware --ppl_target_st 15.8 --ppl_target_ed 20
 
 CUDA_VISIBLE_DEVICES='3' python experiments/greedy.py --model_id="huggyllama/llama-7b" --lora_method "reconstruct" --act_aware --ppl_target_st 5.8 --ppl_target_ed 8
 
+CUDA_VISIBLE_DEVICES='2' python experiments/greedy.py --model_id="huggyllama/llama-7b" --lora_method "reconstruct" --act_aware --ppl_target_st 5.8 --ppl_target_ed 6.5
+
+## Greedy Train
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy_train.py --model_id="facebook/opt-125m" --lora_method "UV" --act_aware --ppl_target_st 30 --ppl_target_ed 40
+
+
 # Eval after greedy
 
-CUDA_VISIBLE_DEVICES='2' python experiments/viz_after_greedy.py --model_id="facebook/opt-125m" --lora_method "UV" --act_aware --ratios "[1, 1, 0.8, 0.4, 1, 0.8, 1, 1, 0.8, 0.8, 1, 0.6, 1, 0.8, 1, 1, 1, 0.6, 1, 1, 0.8, 1, 1, 0.6, 0.8, 1, 0.8, 0.6, 1, 0.6, 0.8, 1, 1, 0.4, 1, 0.4, 0.6, 1, 1, 0.8, 1, 0.6, 1, 1, 0.8, 0.6, 0.8, 1, 1, 1, 0.6, 0.6, 1, 0.8, 0.8, 1, 0.8, 0.6, 1, 0.8, 0.8, 1, 1, 0.4, 0.6, 0.4, 0.4, 1, 1, 0.6, 0.8, 1, 0.8]"
+CUDA_VISIBLE_DEVICES='2' python experiments/viz_after_greedy.py --model_id="facebook/opt-125m" --lora_method "UV" --act_aware --ratios "[1, 1, 0.8125, 0.6875, 1, 0.5625, 1, 1, 0.625, 0.3125, 0.9375, 0.4375, 0.75, 0.875, 1, 0.9375, 1, 0.625, 1, 0.9375, 0.875, 0.625, 1, 0.8125, 0.75, 1, 1, 0.4375, 1, 0.625, 0.625, 1, 0.75, 0.625, 1, 0.5, 0.9375, 1, 0.875, 0.8125, 1, 0.5625, 1, 1, 0.9375, 0.75, 0.9375, 0.75, 1, 1, 0.75, 0.9375, 0.9375, 0.625, 1, 1, 1, 0.75, 0.75, 0.625, 0.625, 1, 1, 0.375, 0.625, 0.5625, 0.625, 1, 1, 1, 1, 1, 1]"
 
 CUDA_VISIBLE_DEVICES='2' python experiments/viz_after_greedy.py --model_id="facebook/opt-1.3b" --lora_method "UV" --act_aware --ratios "[1, 1, 0.4, 0.4, 0.8, 0.4, 0.4, 1, 1, 0.6, 1, 0.4, 0.4, 1, 0.8, 0.8, 0.8, 1, 0.6, 0.8, 0.6, 1, 0.8, 0.4, 0.8, 0.6, 0.4, 0.4, 1, 0.2, 0.4, 0.4, 0.4, 0.8, 1, 0.6, 0.6, 0.8, 1, 0.2, 0.8, 0.4, 0.6, 1, 1, 0.6, 0.6, 0.8, 1, 0.6, 1, 0.8, 0.8, 0.6, 0.8, 1, 0.8, 0.6, 1, 1, 1, 1, 0.6, 0.2, 0.8, 0.4, 1, 1, 0.6, 1, 0.6, 1, 0.6, 0.8, 1, 0.8, 0.8, 0.6, 0.4, 1, 0.8, 0.4, 0.8, 0.8, 1, 1, 0.8, 0.2, 0.8, 0.1, 1, 1, 1, 0.4, 1, 0.4, 0.4, 1, 0.8, 0.6, 0.6, 0.4, 0.8, 1, 0.8, 0.4, 0.6, 0.4, 0.6, 0.8, 0.6, 0.8, 0.4, 1, 0.1, 1, 0.8, 0.4, 0.4, 0.4, 0.6, 0.8, 0.8, 0.4, 0.2, 0.4, 0.2, 0.6, 1, 0.2, 0.1, 0.4, 0.1, 1, 0.8, 0.1, 0.2, 0.1, 0.2, 1, 1, 0.1, 0.4, 0.2, 0.4]"
 CUDA_VISIBLE_DEVICES='1' python experiments/viz_after_greedy.py --model_id="facebook/opt-1.3b" --lora_method "UV" --act_aware --ratios "[1, 1, 0.8, 0.4, 1, 0.4, 0.4, 1, 1, 0.8, 1, 0.8, 0.8, 1, 0.8, 1, 0.8, 1, 1, 0.8, 0.6, 1, 0.8, 0.6, 1, 0.8, 0.6, 0.4, 1, 0.6, 0.6, 0.2, 1, 1, 1, 0.4, 0.8, 1, 1, 0.4, 1, 0.2, 0.8, 1, 1, 0.6, 1, 0.8, 1, 0.6, 1, 0.6, 0.8, 0.6, 0.8, 1, 1, 0.6, 1, 0.6, 1, 1, 0.6, 0.8, 1, 0.2, 0.6, 1, 0.8, 0.6, 0.8, 0.6, 0.6, 1, 1, 0.6, 0.8, 1, 0.8, 1, 0.8, 0.8, 0.8, 0.6, 1, 1, 0.8, 0.6, 0.8, 0.6, 0.4, 1, 1, 0.4, 1, 0.4, 1, 1, 0.8, 0.6, 1, 0.6, 0.4, 0.6, 0.8, 0.4, 1, 0.4, 0.4, 0.8, 0.6, 0.4, 0.1, 0.1, 0.1, 0.6, 0.8, 0.6, 0.4, 0.8, 0.1, 0.8, 1, 0.4, 0.6, 0.4, 0.2, 0.6, 1, 0.2, 0.2, 0.4, 0.2, 0.8, 0.8, 0.1, 0.4, 0.4, 0.2, 1, 1, 0.1, 0.8, 0.4, 0.4]"
 
-CUDA_VISIBLE_DEVICES='1' python experiments/viz_after_greedy.py --model_id="huggyllama/llama-7b" --lora_method "UV" --act_aware --ratios "[1, 0.6, 1, 0.6, 0.1, 0.1, 0.2, 0.1, 1, 1, 0.8, 0.1, 0.1, 0.6, 0.4, 1, 1, 0.8, 0.1, 0.1, 0.8, 1, 1, 1, 0.8, 0.4, 0.4, 1, 0.4, 0.8, 1, 0.8, 0.1, 0.2, 0.8, 0.6, 1, 0.8, 1, 0.4, 0.6, 0.6, 0.6, 0.8, 0.8, 0.8, 0.6, 0.6, 1, 0.2, 1, 1, 0.8, 0.1, 0.6, 0.4, 1, 1, 0.8, 1, 0.2, 0.6, 0.4, 0.2, 1, 1, 0.6, 0.6, 0.6, 0.8, 0.6, 0.8, 1, 1, 0.4, 0.4, 0.4, 0.8, 1, 1, 0.8, 0.1, 0.6, 0.6, 1, 1, 1, 1, 0.1, 0.1, 0.6, 1]"
+CUDA_VISIBLE_DEVICES='1' python experiments/viz_after_greedy.py --model_id="huggyllama/llama-7b" --lora_method "UV" --act_aware --ratios "[1, 0.5, 1, 1, 1, 0.25, 0.25, 1, 1, 1, 0.75, 0.3125, 0.1875, 0.75, 0.3125, 1, 1, 0.625, 0.3125, 0.125, 1, 0.25, 1, 1, 0.6875, 0.5625, 0.5, 1, 0.4375, 0.9375, 0.9375, 0.875, 0.3125, 0.1875, 0.3125, 0.3125, 1, 1, 0.5625, 0.5625, 0.5, 0.4375, 0.3125, 0.75, 1, 0.875, 0.5, 0.4375, 1, 0.125, 1, 1, 0.875, 0.375, 0.125, 1, 0.625, 1, 0.875, 1, 0.125, 1, 0.4375, 0.5, 0.9375, 1, 0.875, 0.25, 0.4375, 1, 0.125]"
 
-CUDA_VISIBLE_DEVICES='2' python experiments/test_after_greedy.py --model_id="facebook/opt-125m" --lora_method "UV" --act_aware --ratios "[1, 1, 0.8, 0.4, 1, 0.8, 1, 1, 0.8, 0.8, 1, 0.6, 1, 0.8, 1, 1, 1, 0.6, 1, 1, 0.8, 1, 1, 0.6, 0.8, 1, 0.8, 0.6, 1, 0.6, 0.8, 1, 1, 0.4, 1, 0.4, 0.6, 1, 1, 0.8, 1, 0.6, 1, 1, 0.8, 0.6, 0.8, 1, 1, 1, 0.6, 0.6, 1, 0.8, 0.8, 1, 0.8, 0.6, 1, 0.8, 0.8, 1, 1, 0.4, 0.6, 0.4, 0.4, 1, 1, 0.6, 0.8, 1, 0.8]"
+CUDA_VISIBLE_DEVICES='2' python experiments/test_after_greedy.py --model_id="facebook/opt-125m" --lora_method "UV" --act_aware --ratios "[1, 1, 0.8125, 0.625, 1, 0.625, 1, 1, 0.5625, 0.375, 1, 0.375, 0.75, 0.875, 1, 0.625, 1, 0.6875, 0.9375, 0.9375, 1, 0.625, 1, 0.5625, 0.75, 1, 0.75, 0.5, 1, 0.5625, 0.625, 1, 0.875, 0.75, 1, 0.5, 1, 1, 0.6875, 0.875, 1, 0.5, 0.875, 1, 0.6875, 0.6875, 0.8125, 0.75, 1, 0.9375, 0.75, 0.5, 1, 0.625, 0.875, 1, 0.875, 0.5625, 0.8125, 0.75, 0.75, 1, 1, 0.25, 0.375, 0.5625, 0.5625, 1, 1, 0.5625, 0.875, 0.8125, 0.75]"
 
 CUDA_VISIBLE_DEVICES='2' python experiments/test_after_greedy.py --model_id="facebook/opt-1.3b" --lora_method "UV" --act_aware --ratios "[1, 1, 0.4, 0.4, 0.8, 0.4, 0.4, 1, 1, 0.6, 1, 0.4, 0.4, 1, 0.8, 0.8, 0.8, 1, 0.6, 0.8, 0.6, 1, 0.8, 0.4, 0.8, 0.6, 0.4, 0.4, 1, 0.2, 0.4, 0.4, 0.4, 0.8, 1, 0.6, 0.6, 0.8, 1, 0.2, 0.8, 0.4, 0.6, 1, 1, 0.6, 0.6, 0.8, 1, 0.6, 1, 0.8, 0.8, 0.6, 0.8, 1, 0.8, 0.6, 1, 1, 1, 1, 0.6, 0.2, 0.8, 0.4, 1, 1, 0.6, 1, 0.6, 1, 0.6, 0.8, 1, 0.8, 0.8, 0.6, 0.4, 1, 0.8, 0.4, 0.8, 0.8, 1, 1, 0.8, 0.2, 0.8, 0.1, 1, 1, 1, 0.4, 1, 0.4, 0.4, 1, 0.8, 0.6, 0.6, 0.4, 0.8, 1, 0.8, 0.4, 0.6, 0.4, 0.6, 0.8, 0.6, 0.8, 0.4, 1, 0.1, 1, 0.8, 0.4, 0.4, 0.4, 0.6, 0.8, 0.8, 0.4, 0.2, 0.4, 0.2, 0.6, 1, 0.2, 0.1, 0.4, 0.1, 1, 0.8, 0.1, 0.2, 0.1, 0.2, 1, 1, 0.1, 0.4, 0.2, 0.4]"
 
@@ -109,3 +115,8 @@ CUDA_VISIBLE_DEVICES='0' python experiments/test_after_greedy.py --model_id="fac
 
 # 2d sensitivity
 CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware_2d
+
+
+# greedy prune
+
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy_prune.py --model_id="facebook/opt-125m" --ppl_target_st 30 --ppl_target_ed 35

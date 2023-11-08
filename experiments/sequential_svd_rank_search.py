@@ -32,7 +32,7 @@ def transform_linear(child,rank_ratio):
     else:
         svd_linear = SVDLoRALinear.from_linear(
                         child,
-                        compression_ratio=rank_ratio,
+                        n_param_ratio=rank_ratio,
                         lora_method='reconstruct',
                         act_aware=True,
                     )
