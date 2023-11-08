@@ -180,20 +180,10 @@ def evaluate_model(
             nlls = []
 
             for i in tqdm(range(nsamples)):
-                input_ids = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(
+                batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(
                     lm.device
                 )
-                # outputs = model(input_ids, labels=input_ids)
-                # nlls.append(outputs.loss)
-                
-                if "opt" in model_name:
-                    # model = lm.model.model.decoder.to(lm.device)
-                    model = lm.model.model.to(lm.device)
-                    batch = input_ids.to(lm.device)
-                    outputs = model(batch)
-                    # outputs = lm.model.model.decoder(batch)
-                elif "llama" in model_name:
-                    outputs = lm.model.model(batch)
+                outputs = lm.model.model(batch)
                 hidden_states = outputs[0]  # .to(lm.model.lm_head.weight.device)
                 logits = lm.model.lm_head(hidden_states)  # .contiguous()
                 shift_logits = logits[:, :-1, :]  # .contiguous()

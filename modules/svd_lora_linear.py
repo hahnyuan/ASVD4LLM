@@ -36,7 +36,7 @@ class SVDLoRALinear(nn.Module):
             self.bias = nn.Parameter(bias)
         else:
             self.bias = None
-
+    
     @staticmethod
     def from_linear(
         linear: nn.Linear,
@@ -93,3 +93,9 @@ class SVDLoRALinear(nn.Module):
         if self.bias is not None:
             x = x + self.bias
         return x
+
+    def rebuild_weight(self):
+        V = torch.cat([self.V_fix, self.V_train], dim=1)
+        U = torch.cat([self.U_fix, self.U_train], dim=1)
+        weight = torch.matmul(U, torch.matmul(self.S.diag_embed(), V.transpose(-2, -1)))
+        return weight
