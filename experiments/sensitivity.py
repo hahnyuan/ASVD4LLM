@@ -18,11 +18,11 @@ from datasets import load_dataset
 
 from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
-from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
+
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 import tqdm
-from svd_init_utils import calib_input_distribution
+from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 
 
 def convert_linear_to_svd_lora_linear(model, tokenizer, args):
@@ -60,7 +60,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                     if not os.path.exists(path):
                         os.makedirs(path)
                     with open(
-                        f"{path}/sensitivity_linearwise_{args.act_aware}.json",
+                        f"{path}/sensitivity_linearwise_{args.act_aware}{args.act_aware_2d}.json",
                         "a+",
                     ) as f:
                         f.write(str(result) + ",\n")
@@ -102,6 +102,10 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
+    elif args.act_aware_2d:
+        cablib_dataset = "wikitext2"
+        calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
+        calib_input_output_distribution(model, calib_loader)
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
     convert_linear_to_svd_lora_linear(model, tokenizer, args)
 
@@ -122,6 +126,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--act_aware",
+        action="store_true",
+        help="use act aware svd lora",
+    )
+    parser.add_argument(
+        "--act_aware_2d",
         action="store_true",
         help="use act aware svd lora",
     )

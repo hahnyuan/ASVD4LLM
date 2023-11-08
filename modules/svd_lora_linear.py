@@ -36,7 +36,7 @@ class SVDLoRALinear(nn.Module):
             self.bias = nn.Parameter(bias)
         else:
             self.bias = None
-    
+
     @staticmethod
     def from_linear(
         linear: nn.Linear,
@@ -45,21 +45,34 @@ class SVDLoRALinear(nn.Module):
         lora_method="Uonly",
         act_aware=False,
     ):
-        n_params=linear.weight.numel()
-        compressed_params=int(n_params*compression_ratio)
+        n_params = linear.weight.numel()
+        compressed_params = int(n_params * compression_ratio)
         # compressed_params=rank*(in_features+out_features)
         # therefore, rank=compressed_params/(in_features+out_features)
-        rank=compressed_params//(linear.in_features+linear.out_features)
+        rank = compressed_params // (linear.in_features + linear.out_features)
         # rank = int(min(linear.weight.size()) * compression_ratio)
         if act_aware:
             input_abs_mean = linear.input_abs_mean
             input_abs_mean += 1e-6  # avoid zero division
-            w = linear.weight.data * input_abs_mean
+            if hasattr(linear, "output_abs_mean"):
+                output_abs_mean = linear.output_abs_mean
+                output_abs_mean += 1e-6  # avoid zero division
+                input_abs_mean = input_abs_mean.sqrt()
+                output_abs_mean = output_abs_mean.sqrt()
+                w = (
+                    linear.weight.data
+                    * output_abs_mean.view(-1, 1)
+                    * input_abs_mean.view(1, -1)
+                )
+            else:
+                w = linear.weight.data * input_abs_mean.view(1, -1)
         else:
             w = linear.weight.data
         U, S, V = torch.svd_lowrank(w, q=rank)
         if act_aware:
             V = V / input_abs_mean.view(-1, 1)
+            if hasattr(linear, "output_abs_mean"):
+                U = U / output_abs_mean.view(-1, 1)
         if lora_method == "reconstruct":
             w_approx = torch.matmul(
                 U, torch.matmul(S.diag_embed(), V.transpose(-2, -1))

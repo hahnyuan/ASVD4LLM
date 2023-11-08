@@ -18,48 +18,46 @@ from datasets import load_dataset
 
 from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
-from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
+
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 import tqdm
-from svd_init_utils import calib_input_distribution
+from svd_init_utils import calib_input_output_distribution
 
 
 def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
-    log_file=open(f"{path}/greedy_{args.act_aware}.json","a+")
+    log_file = open(f"{path}/greedy_{args.act_aware}.json", "a+")
 
     full_name_dict = {module: name for name, module in model.named_modules()}
-    
-    
 
-    linear_dict=[]
+    linear_dict = []
     modules = [model]
     while len(modules) > 0:
         submodule = modules.pop()
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
-                linear_dict.append((full_name,raw_linear,submodule,name))
+                linear_dict.append((full_name, raw_linear, submodule, name))
             else:
                 modules.append(raw_linear)
     log_file.write(str([_[0] for _ in linear_dict]) + ",\n")
 
-    compression_ratios=[1,0.8,0.6,0.4,0.2,0.1]
-    config_stack=[]
+    compression_ratios = [1, 0.8, 0.6, 0.4, 0.2, 0.1]
+    config_stack = []
     for ratio in compression_ratios:
-        full_name,raw_linear,submodule,name=linear_dict[0]
+        full_name, raw_linear, submodule, name = linear_dict[0]
         config_stack.append([(full_name, ratio)])
     while len(config_stack) > 0:
         layers_config = config_stack.pop()
         for i, (full_name, ratio) in enumerate(layers_config):
-            if ratio==1:
-                full_name,raw_linear,submodule,name=linear_dict[i]
+            if ratio == 1:
+                full_name, raw_linear, submodule, name = linear_dict[i]
                 setattr(submodule, name, raw_linear)
             else:
-                full_name,raw_linear,submodule,name=linear_dict[i]
+                full_name, raw_linear, submodule, name = linear_dict[i]
                 svd_linear = SVDLoRALinear.from_linear(
                     raw_linear,
                     compression_ratio=ratio,
@@ -70,9 +68,9 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 # print(
                 #     f"convert {full_name} to svd_lora_linear ratio={ratio}"
                 # )
-            
-        for i in range(len(layers_config),len(linear_dict)):
-            full_name,raw_linear,submodule,name=linear_dict[i]
+
+        for i in range(len(layers_config), len(linear_dict)):
+            full_name, raw_linear, submodule, name = linear_dict[i]
             setattr(submodule, name, raw_linear)
             # print(f"convert {full_name} to raw_linear")
         result = evaluate_model(
@@ -83,13 +81,15 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
             eval_ppl="wikitext2",
             limit=15,
         )
-        ratio_trace=[ratio for _,ratio in layers_config]
+        ratio_trace = [ratio for _, ratio in layers_config]
         # calculate ppl_target by linear interpolation
-        ppl_target=args.ppl_target_st+(args.ppl_target_ed-args.ppl_target_st)*len(layers_config)/len(linear_dict)
-        print(result["wikitext2"],ppl_target,ratio_trace)
+        ppl_target = args.ppl_target_st + (
+            args.ppl_target_ed - args.ppl_target_st
+        ) * len(layers_config) / len(linear_dict)
+        print(result["wikitext2"], ppl_target, ratio_trace)
         if 0:
             for i in range(len(linear_dict)):
-                full_name,raw_linear,submodule,name=linear_dict[i]
+                full_name, raw_linear, submodule, name = linear_dict[i]
                 setattr(submodule, name, raw_linear)
             result2 = evaluate_model(
                 model,
@@ -100,17 +100,24 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 limit=50,
             )
             print(result2["wikitext2"])
-        
-        log_file.write(str({"ratio_trace": ratio_trace,"wikitext2":result["wikitext2"],"ppl_target":ppl_target}) + ",\n")
+
+        log_file.write(
+            str(
+                {
+                    "ratio_trace": ratio_trace,
+                    "wikitext2": result["wikitext2"],
+                    "ppl_target": ppl_target,
+                }
+            )
+            + ",\n"
+        )
         log_file.flush()
-        if result["wikitext2"]>ppl_target:
+        if result["wikitext2"] > ppl_target:
             continue
         else:
-            full_name2,_,_,_=linear_dict[len(layers_config)]
+            full_name2, _, _, _ = linear_dict[len(layers_config)]
             for ratio in compression_ratios:
-                config_stack.append(layers_config+[(full_name2, ratio)])
-
-        
+                config_stack.append(layers_config + [(full_name2, ratio)])
 
 
 def total_model_parameters_buffers(model):
@@ -144,7 +151,7 @@ def main(args):
     if args.act_aware:
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-        calib_input_distribution(model, calib_loader)
+        calib_input_output_distribution(model, calib_loader)
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
     convert_linear_to_svd_lora_linear(model, tokenizer, args)
 

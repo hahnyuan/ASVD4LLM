@@ -18,7 +18,7 @@ from datasets import load_dataset
 
 from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
-from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
+
 from utils import print_gpu_memory
 from datautils import get_calib_data
 
