@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 class SVDLinear(nn.Module):
     def __init__(
-        self, Us, Ss, Vs, bias=None, split="no"
+        self, Us, Ss, Vs, bias=None, split="no", ic_indexes=None, oc_indexes=None
     ) -> None:
         super().__init__()
         self.Us=Us
@@ -16,12 +16,17 @@ class SVDLinear(nn.Module):
         else:
             self.bias = None
         self.split=split
+        self.ic_indexes=ic_indexes
+        self.oc_indexes=oc_indexes
+        self.oc_reorg_indexes=torch.argsort(oc_indexes) if oc_indexes is not None else None
 
     @staticmethod
     def from_linear(
         linear: nn.Linear,
         param_ratio: float,
         act_aware=False,
+        reorder=False,
+        gradient_aware=False,
         ic_split=1,
         oc_split=1,
     ):
@@ -37,61 +42,91 @@ class SVDLinear(nn.Module):
         else:
             rank = compressed_params // (linear.in_features + linear.out_features)
         # print("rank", rank)
+        if gradient_aware:
+            if linear.in_features>linear.out_features:
+                input_g_mean=linear.input_grad.abs()
+                # input_g_mean=input_g_mean*linear.weight.data.abs().mean(0) # shape ic
+                # input_g_mean=linear.output_grad.abs()
+                # input_g_mean=g.abs().mean(0) # shape ic
+                input_g_mean+=1e-6 # avoid zero division
+                input_g_mean=input_g_mean/input_g_mean.mean() #normalize
+                input_g_mean=input_g_mean.sqrt()
+                output_g_mean=torch.ones_like(linear.output_grad)
+            else:
+                output_g_mean=linear.output_grad.abs()
+                output_g_mean+=1e-6
+                output_g_mean=output_g_mean/output_g_mean.mean()
+                output_g_mean=output_g_mean.sqrt()
+                input_g_mean=torch.ones_like(linear.input_grad)
+
+            # breakpoint()
+            # input_g_mean=torch.log2(input_g_mean).clamp_(min=1e-6)
+            w = linear.weight.data*input_g_mean.view(1,-1)
+            w = w*output_g_mean.view(-1,1)
+        else:
+            w = linear.weight.data
         if act_aware:
             input_abs_mean = linear.input_abs_mean
             input_abs_mean += 1e-6  # avoid zero division
-            if hasattr(linear, "output_abs_mean"):
-                raise NotImplementedError
-                output_abs_mean = linear.output_abs_mean
-                output_abs_mean += 1e-6  # avoid zero division
-                input_abs_mean = input_abs_mean.sqrt()
-                output_abs_mean = output_abs_mean.sqrt()
-                w = (
-                    linear.weight.data
-                    * output_abs_mean.view(-1, 1)
-                    * input_abs_mean.view(1, -1)
-                )
-            else:
-                w = linear.weight.data * input_abs_mean.view(1, -1)
+            w = linear.weight.data * input_abs_mean.view(1, -1)
         else:
             w = linear.weight.data
+        ic_indexes=None
+        oc_indexes=None
+        if reorder and max(ic_split,oc_split)>1:
+            if ic_split>1:
+                indexes = torch.argsort(linear.input_abs_mean)
+                indexes = indexes.view(-1, max(ic_split,oc_split))
+                ic_indexes=indexes.transpose(0, 1).reshape(-1)
+            if oc_split>1:
+                indexes = torch.argsort(linear.output_abs_mean)
+                indexes = indexes.view(-1, max(ic_split,oc_split))
+                oc_indexes=indexes.transpose(0, 1).reshape(-1)
         if ic_split>1:
+            if reorder and max(ic_split,oc_split)>1:
+                w=w[:,ic_indexes]
+                if act_aware:
+                    input_abs_mean=input_abs_mean[ic_indexes]
             w=w.view(linear.out_features, ic_split, linear.in_features//ic_split)
+            
             Us=[]
             Ss=[]
             Vs=[]
             for i in range(ic_split):
                 U, S, V = torch.svd_lowrank(w[:,i,:], q=rank)
+                if act_aware:
+                    V=V/input_abs_mean.view(ic_split, linear.in_features//ic_split,1)[i]
                 Us.append(U)
                 Ss.append(S)
                 Vs.append(V)
-                if act_aware:
-                    V=V/input_abs_mean.view(-1,1)
+                
             split='ic'
         elif oc_split>1:
+            if reorder and max(ic_split,oc_split)>1:
+                w=w[oc_indexes]
             w=w.view(oc_split, linear.out_features//oc_split, linear.in_features)
             Us=[]
             Ss=[]
             Vs=[]
             for i in range(oc_split):
                 U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
+                if act_aware:
+                    V=V/input_abs_mean.view(-1,1)
                 Us.append(U)
                 Ss.append(S)
                 Vs.append(V)
-                if act_aware:
-                    V=V/input_abs_mean.view(oc_split, linear.out_features//oc_split,1)[i]
-            assert act_aware==False
             split='oc'
         else:
             U, S, V = torch.svd_lowrank(w, q=rank)
             # print(S)
+            if gradient_aware:
+                V = V / input_g_mean.view(-1, 1)
+                U = U / output_g_mean.view(-1,1)
+            if act_aware:
+                V = V / input_abs_mean.view(-1, 1)
             Us=[U]
             Ss=[S]
             Vs=[V]
-            if act_aware:
-                V = V / input_abs_mean.view(-1, 1)
-                if hasattr(linear, "output_abs_mean"):
-                    U = U / output_abs_mean.view(-1, 1)
             split='no'
 
         if linear.bias is not None:
@@ -101,10 +136,12 @@ class SVDLinear(nn.Module):
 
         # print shapes
         # print(f"U: {U.size()}, S: {S.size()}, V: {V.size()}, bias: {bias.size()}")
-        return SVDLinear(Us, Ss, Vs, bias,split)
+        return SVDLinear(Us, Ss, Vs, bias,split,ic_indexes,oc_indexes)
 
     def forward(self, inp):
         # compute USV^Tx + b
+        if self.ic_indexes is not None:
+            inp=torch.index_select(inp, dim=-1, index=self.ic_indexes)
         if self.split in ['no','oc']:
             y=[]
             for U,S,V in zip(self.Us, self.Ss, self.Vs):
@@ -131,6 +168,8 @@ class SVDLinear(nn.Module):
                     y+=x
             else:
                 raise NotImplementedError
+        if self.oc_reorg_indexes is not None:
+            y=torch.index_select(y, dim=-1, index=self.oc_reorg_indexes)
             
         if self.bias is not None:
             y = y + self.bias

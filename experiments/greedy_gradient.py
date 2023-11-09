@@ -30,7 +30,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
-    log_file=open(f"{path}/greedy_split_{args.act_aware}{args.reorder}.json","a+")
+    log_file=open(f"{path}/greedy_gradient_{args.gradient_aware}{args.reorder}.json","a+")
 
     full_name_dict = {module: name for name, module in model.named_modules()}
     
@@ -46,66 +46,55 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 modules.append(raw_linear)
     log_file.write(str([_[0] for _ in linear_dict]) + ",\n")
     # binary search
-    split_trace=[]
     ratio_trace=[]
     raw_params=0
     compressed_params=0
     for layeri,(full_name,raw_linear,father,name) in enumerate(linear_dict):
         if 'head' in full_name:
             continue
-        if 'fc' not in full_name:
-            continue
+        # if 'fc2' not in full_name:
+        #     continue
         log_file.write(full_name+'\n')
         low=0
         high=1
         ppl_target=args.ppl_target_st+(args.ppl_target_ed-args.ppl_target_st)*(layeri+1)/len(linear_dict)
-        best_split=None
         best_svd_linear=None
-        if raw_linear.in_features>raw_linear.out_features:
-            split_candidates=((1,1),(4,1))
-        elif raw_linear.in_features<raw_linear.out_features:
-            split_candidates=((1,1),(1,4))
-        else:
-            split_candidates=((1,1),)
         for i in range(4):
             ratio=(low+high)/2
-            min_ppl=None
-            min_split=None
-            min_svd_linear=None
-            for ic_split,oc_split in split_candidates:
+
+            if 'self_attn' in full_name:
                 svd_linear=SVDLinear.from_linear(
                         raw_linear,
                         param_ratio=ratio,
                         act_aware=args.act_aware,
-                        oc_split=oc_split,
-                        ic_split=ic_split,
                         reorder=args.reorder,
                 )
-                setattr(father, name, svd_linear)
-                result = evaluate_model(
-                    model,
-                    tokenizer,
-                    args.model_id,
-                    "",
-                    eval_ppl="wikitext2",
-                    limit=15,
+            else:
+                svd_linear=SVDLinear.from_linear(
+                        raw_linear,
+                        param_ratio=ratio,
+                        gradient_aware=args.gradient_aware,
+                        reorder=args.reorder,
                 )
-                ppl=result["wikitext2"]
-                if min_ppl is None or ppl<min_ppl:
-                    min_ppl=ppl
-                    min_split=(ic_split,oc_split)
-                    min_svd_linear=svd_linear
+            setattr(father, name, svd_linear)
+            result = evaluate_model(
+                model,
+                tokenizer,
+                args.model_id,
+                "",
+                eval_ppl="wikitext2",
+                limit=15,
+            )
+            ppl=result["wikitext2"]
                     
-                log_file.write(str({"ic/oc split": (ic_split,oc_split),"ratio": ratio,"wikitext2":result["wikitext2"]}) + ",\n")
-                log_file.flush()
-            if min_ppl>ppl_target:
+            log_file.write(str({"ratio": ratio,"wikitext2":result["wikitext2"]}) + ",\n")
+            log_file.flush()
+            if ppl>ppl_target:
                 low=ratio
             else:
                 high=ratio
-                best_split=min_split
-                best_svd_linear=min_svd_linear
+                best_svd_linear=svd_linear
             
-        split_trace.append(best_split)
         ratio_trace.append(high)
         raw_params+=raw_linear.weight.numel()
         if high==1:
@@ -116,9 +105,32 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
             for U,S,V in zip(best_svd_linear.Us,best_svd_linear.Ss,best_svd_linear.Vs):
                 compressed_params+=U.numel()+S.numel()+V.numel()
         log_file.write(
-            f"{split_trace}\n{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n")
+            f"{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n")
 
+def get_gradient(model,trainloader):
+    print(f"get_gradient")
+    # hook for each Linear layer, to get collect the input activation gradient and output activation gradient
+    def hook_fn(module, grad_input, grad_output):
+        module.input_grad += grad_input[0].view(-1,grad_input[0].size(-1)).abs().mean(0)
+        module.output_grad += grad_output[0].view(-1,grad_output[0].size(-1)).abs().mean(0)
+
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            module.input_grad = 0
+            module.output_grad = 0
+            module.register_full_backward_hook(hook_fn)
+
+    for batch in tqdm.tqdm(trainloader):
+        batch = batch.to(model.device)
+        model.zero_grad()
+        outputs = model(batch)
+        loss = outputs.loss
+        loss['logits'].mean().backward()
     
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            module._backward_hooks.clear()
+
         
 
 
@@ -155,6 +167,8 @@ def main(args):
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
     # calib_input_distribution(model, calib_loader)
     calib_input_output_distribution(model, calib_loader)
+    train_loader=sample_train_loaders('wikitext2',tokenizer,16,3,1024)
+    get_gradient(model,train_loader)
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
     convert_linear_to_svd_lora_linear(model, tokenizer, args)
 
@@ -176,9 +190,12 @@ if __name__ == "__main__":
         type=float,
     )
     parser.add_argument(
+        "--gradient_aware",
+        action="store_true",
+    )
+    parser.add_argument(
         "--act_aware",
         action="store_true",
-        help="use act aware svd",
     )
     parser.add_argument(
         "--reorder",
