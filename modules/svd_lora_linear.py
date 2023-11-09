@@ -42,16 +42,17 @@ class SVDLoRALinear(nn.Module):
     @staticmethod
     def from_linear(
         linear: nn.Linear,
-        n_param_ratio: float,
+        param_ratio: float,
         train_ratio: float = 0.5,
         lora_method="Uonly",
         act_aware=False,
     ):
         n_params = linear.weight.numel()
-        compressed_params = int(n_params * n_param_ratio)
+        compressed_params = int(n_params * param_ratio)
         # compressed_params=rank*(in_features+out_features)
         # therefore, rank=compressed_params/(in_features+out_features)
         rank = compressed_params // (linear.in_features + linear.out_features)
+        print(f"rank: {rank}")
         # rank = int(min(linear.weight.size()) * compression_ratio)
         if act_aware:
             input_abs_mean = linear.input_abs_mean
@@ -71,6 +72,7 @@ class SVDLoRALinear(nn.Module):
         else:
             w = linear.weight.data
         U, S, V = torch.svd_lowrank(w, q=rank)
+        # print(S)
         if act_aware:
             V = V / input_abs_mean.view(-1, 1)
             if hasattr(linear, "output_abs_mean"):

@@ -65,7 +65,7 @@ def convert_linear_to_svd_lora_linear(module, args):
                     continue
                 svd_linear = SVDLoRALinear.from_linear(
                     child,
-                    n_param_ratio=rank_ratio,
+                    param_ratio=rank_ratio,
                     lora_method=args.lora_method,
                     act_aware=args.act_aware,
                 )

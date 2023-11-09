@@ -18,56 +18,76 @@ from datasets import load_dataset
 
 from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
-
+from modules.act_aware_svd_lora_linear import ActAwareSVDLoRALinear
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 import tqdm
-from svd_init_utils import calib_input_distribution, calib_input_output_distribution
+import re
+import copy
 
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+@torch.no_grad()
+def calib_input_distribution(model, calib_loader):
+    model.eval()
+    # set hook for every Linear layers
+
+    def hook(module, input, output):
+        abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
+        module.input_abs_mean += abs_mean
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module.input_abs_mean = 0
+            module.register_forward_hook(hook)
+
+    # get activation distribution
+    print("get activation distribution")
+    for batch in tqdm.tqdm(calib_loader):
+        # print(batch)
+        batch = {k: v.to(model.device) for k, v in batch.items()}
+        model(**batch)
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            # clear hooks
+            module._forward_hooks.clear()
+
+
+def gen_layerwise_sensitivity(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
-    modules = [model]
-    while len(modules) > 0:
-        submodule = modules.pop()
-        for name, child in submodule.named_children():
+    trainloader = sample_train_loaders()
+    # model.decoder.layers.23.fc1
+    for layeri, layer in enumerate(model.decoder.layers):
+        raw_layer = copy.deepcopy(layer)
+        for name, child in layer.named_children():
             if isinstance(child, nn.Linear):
                 full_name = full_name_dict[child]
-                for compression_ratio in [0.1, 0.2, 0.4, 0.6, 0.8]:
+                for rank_ratio in [0.01, 0.02, 0.05]:
                     svd_linear = SVDLoRALinear.from_linear(
                         child,
-                        param_ratio=compression_ratio,
+                        r_ratio=rank_ratio,
                         lora_method=args.lora_method,
                         act_aware=args.act_aware,
                     )
-                    print(
-                        f"convert {full_name} to svd_lora_linear ratio={compression_ratio}"
-                    )
-                    setattr(submodule, name, svd_linear)
-                    result = evaluate_model(
-                        model,
-                        tokenizer,
-                        args.model_id,
-                        "",
-                        eval_ppl="wikitext2",
-                        limit=50,
-                    )
-                    # del result["boolq"]
-                    result.update(
-                        {"compression_ratio": compression_ratio, "full_name": full_name}
-                    )
-                    path = f"output/{args.model_id.replace('/','_')}"
-                    if not os.path.exists(path):
-                        os.makedirs(path)
-                    with open(
-                        f"{path}/sensitivity_linearwise_{args.act_aware}{args.act_aware_2d}.json",
-                        "a+",
-                    ) as f:
-                        f.write(str(result) + ",\n")
-                setattr(submodule, name, child)
-
-            else:
-                modules.append(child)
+                    print(f"convert {full_name} to svd_lora_linear ratio={rank_ratio}")
+                    setattr(layer, name, svd_linear)
+            result = evaluate_model(
+                model,
+                tokenizer,
+                args.model_id,
+                "",
+                eval_ppl="wikitext2",
+                limit=200,
+            )
+            # del result["boolq"]
+            result.update({"rank_ratio": rank_ratio, "full_name": full_name})
+            with open(
+                f"output/layer_wise_sensitivity_{args.model_id.replace('/','_')}_{args.act_aware}.json",
+                "a+",
+            ) as f:
+                f.write(str(result) + ",\n")
+        # restore layer
+        model.decoder.layers[layeri] = raw_layer
 
 
 def total_model_parameters_buffers(model):
@@ -102,12 +122,8 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
-    elif args.act_aware_2d:
-        cablib_dataset = "wikitext2"
-        calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-        calib_input_output_distribution(model, calib_loader)
     print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, tokenizer, args)
+    gen_layerwise_sensitivity(model, tokenizer, args)
 
 
 if __name__ == "__main__":
@@ -119,6 +135,16 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
+        "--msa_rank_ratio",
+        type=float,
+        default=0.3,
+    )
+    parser.add_argument(
+        "--mlp_rank_ratio",
+        type=float,
+        default=0.1,
+    )
+    parser.add_argument(
         "--lora_method",
         type=str,
         default="UV",
@@ -126,11 +152,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--act_aware",
-        action="store_true",
-        help="use act aware svd lora",
-    )
-    parser.add_argument(
-        "--act_aware_2d",
         action="store_true",
         help="use act aware svd lora",
     )

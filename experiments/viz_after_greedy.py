@@ -32,12 +32,14 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
 
     linear_dict=[]
     modules = [model]
+    n_params=0
     while len(modules) > 0:
         submodule = modules.pop()
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
                 linear_dict.append((full_name,raw_linear,submodule,name))
+                n_params+=raw_linear.weight.size(0)*raw_linear.weight.size(1)
             else:
                 modules.append(raw_linear)
     
@@ -45,6 +47,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     layer_types_ratio={}
     ratios=eval(args.ratios) # a list of ratios
     
+    n_compressed_params=0
     prev_father_name=""
     cnt=1
     for i, ratio in enumerate(ratios):
@@ -53,19 +56,14 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
         if layer_type not in layer_types_ratio:
             layer_types_ratio[layer_type]=[]
         layer_types_ratio[layer_type].append(ratio)
-
+        n_compressed_params+=int(ratio*raw_linear.weight.size(0)*raw_linear.weight.size(1))
         father_name=re.findall(r"\.(\d)+\.",full_name)
         if len(father_name)>0:
             father_name=father_name[0]
         else:
             continue
-        svd_linear = SVDLoRALinear.from_linear(
-                raw_linear,
-                n_param_ratio=ratio,
-                lora_method=args.lora_method,
-                act_aware=args.act_aware,
-            )
-        setattr(submodule, name, svd_linear)
+        
+
         if 0 and ratio<1:
             
             rebuild_weight=svd_linear.rebuild_weight()
@@ -96,6 +94,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     for layer_type in layer_types_ratio:
         print(layer_type, np.mean(layer_types_ratio[layer_type]))
         print(layer_types_ratio[layer_type])
+    print(f"n_params={n_params}, n_compressed_params={n_compressed_params}, ratio={n_compressed_params/n_params}")
         
     
 

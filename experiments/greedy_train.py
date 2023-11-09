@@ -93,7 +93,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
             ratio=(low+high)/2
             svd_linear = SVDLoRALinear.from_linear(
                     raw_linear,
-                    n_param_ratio=ratio,
+                    param_ratio=ratio,
                     train_ratio=1,
                     lora_method=args.lora_method,
                     act_aware=args.act_aware,
@@ -132,7 +132,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 else:
                     select_svd_linear = SVDLoRALinear.from_linear(
                         raw_linear,
-                        n_param_ratio=ratio,
+                        param_ratio=ratio,
                         lora_method=args.lora_method,
                         act_aware=args.act_aware,
                     )

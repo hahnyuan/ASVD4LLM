@@ -60,7 +60,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 full_name, raw_linear, submodule, name = linear_dict[i]
                 svd_linear = SVDLoRALinear.from_linear(
                     raw_linear,
-                    n_param_ratio=ratio,
+                    param_ratio=ratio,
                     lora_method=args.lora_method,
                     act_aware=args.act_aware,
                 )

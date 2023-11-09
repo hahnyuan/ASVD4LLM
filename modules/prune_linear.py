@@ -48,7 +48,7 @@ class PruneLinear(nn.Module):
             if linear.bias is not None:
                 new_bias=linear.bias.clone()
             else:
-                new_bias=torch.zeros_like(input_mean)
+                new_bias=torch.zeros_like(output_mean)
             new_bias+=bias_shift
         else:
             raise ValueError("prune_dim must be 0 or 1")
