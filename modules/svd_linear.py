@@ -75,6 +75,7 @@ class SVDLinear(nn.Module):
         ic_indexes=None
         oc_indexes=None
         if reorder and max(ic_split,oc_split)>1:
+            # deprecated
             if ic_split>1:
                 indexes = torch.argsort(linear.input_abs_mean)
                 indexes = indexes.view(-1, max(ic_split,oc_split))

@@ -41,11 +41,35 @@ def inf_nan_trace(model):
         module._forward_hooks.clear()
         module.register_forward_hook(hook)
 
+def reorder_mlp(model):
+    full_name_dict = {module: name for name, module in model.named_modules()}
+    if 'opt' in args.model_id:
+        mlps=[(_.fc1,_.fc2) for _ in model.model.decoder.layers]
+    elif 'llama' in args.model_id:
+        mlps=[(_.mlp.gate_proj,_.mlp.up_proj,_.mlp.down_proj) for _ in model.model.layers]
+    else:
+        raise NotImplementedError
+    if args.test_split==1:
+        return
+    for mlp in mlps:
+        act_sensitivity=mlp[-1].input_abs_mean
+        indexes=torch.argsort(act_sensitivity)
+        reorder_indexes=indexes.view(-1,args.test_split).transpose(0,1).reshape(-1)
+        # reorder output
+        for layer in mlp[:-1]:
+            layer.weight.data=layer.weight.data[reorder_indexes]
+            if layer.bias is not None:
+                layer.bias.data=layer.bias.data[reorder_indexes]
+        # reorder input
+        mlp[-1].weight.data=mlp[-1].weight.data[:,reorder_indexes]
+        mlp[-1].input_abs_mean=mlp[-1].input_abs_mean[reorder_indexes]
+        print(f"reorder for {full_name_dict[mlp[-1]]} done")
+
 def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
-    log_file=open(f"{path}/greedy_split_{args.act_aware}{args.reorder}{args.test_split}.json","a+")
+    log_file=open(f"{path}/greedy_split_a{args.act_aware}_r{args.reorder}_s{args.test_split}.json","a+")
 
     full_name_dict = {module: name for name, module in model.named_modules()}
     
@@ -93,7 +117,6 @@ def convert_to_svd_linear(model, tokenizer, args):
                         act_aware=args.act_aware,
                         oc_split=oc_split,
                         ic_split=ic_split,
-                        reorder=args.reorder,
                 )
                 setattr(father, name, svd_linear)
                 # inf_nan_trace(model)
@@ -108,7 +131,7 @@ def convert_to_svd_linear(model, tokenizer, args):
                 ppl=result["wikitext2"]
                 # nan check
                 if ppl!=ppl:
-                    breakpoint()
+                    # breakpoint()
                     ppl=1e10
                 if min_ppl is None or ppl<min_ppl:
                     min_ppl=ppl
@@ -168,6 +191,8 @@ def main(args):
     # calib_input_distribution(model, calib_loader)
     calib_input_output_distribution(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
+    if args.reorder:
+        reorder_mlp(model)
     convert_to_svd_linear(model, tokenizer, args)
 
 

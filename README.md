@@ -143,7 +143,7 @@ CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="facebook
 CUDA_VISIBLE_DEVICES='3' python experiments/greedy_split.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 8 --act_aware
 
 
-CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware
+CUDA_VISIBLE_DEVICES='3' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware
 
 CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 8 --act_aware --test_split 8
 
@@ -153,3 +153,8 @@ CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="huggylla
 CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="facebook/opt-1.3b" --ppl_target_st 15.8 --ppl_target_ed 20 --act_aware
 
 CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="facebook/opt-1.3b" --ppl_target_st 15.8 --ppl_target_ed 20 --act_aware
+
+# greedy split reorder
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --act_aware --reorder
+
+CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware --reorder
