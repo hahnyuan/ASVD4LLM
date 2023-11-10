@@ -122,7 +122,7 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
+    print_gpu_memory("before convert_to_svd_linear")
     gen_layerwise_sensitivity(model, tokenizer, args)
 
 

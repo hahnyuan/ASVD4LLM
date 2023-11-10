@@ -8,9 +8,13 @@ class SVDLinear(nn.Module):
         self, Us, Ss, Vs, bias=None, split="no", ic_indexes=None, oc_indexes=None
     ) -> None:
         super().__init__()
+        for U,S,V in zip(Us, Ss, Vs):
+            U.mul_(S.sqrt())
+            V.mul_(S.sqrt())
         self.Us=nn.ParameterList(Us)
-        self.Ss=nn.ParameterList(Ss)
+        self.Ss=Ss
         self.Vs=nn.ParameterList(Vs)
+        
         if bias is not None:
             self.bias = bias
         else:
@@ -144,9 +148,10 @@ class SVDLinear(nn.Module):
             y=[]
             for U,S,V in zip(self.Us, self.Ss, self.Vs):
                 x = F.linear(inp, V.t(), bias=None)
-                x = x * S
+                # x = x * S
                 x = F.linear(x, U, bias=None)
                 y.append(x)
+                
             y=torch.concat(y, dim=-1)
         else:
             y=0
@@ -154,14 +159,14 @@ class SVDLinear(nn.Module):
                 inp=inp.view(inp.size(0),len(self.Us),-1)
                 for i,(U,S,V) in enumerate(zip(self.Us, self.Ss, self.Vs)):
                     x = F.linear(inp[:,i,:], V.t(), bias=None)
-                    x = x * S
+                    # x = x * S
                     x = F.linear(x, U, bias=None)
                     y+=x
             elif inp.dim()==3:
                 inp=inp.view(inp.size(0),inp.size(1),len(self.Us),-1)
                 for i,(U,S,V) in enumerate(zip(self.Us, self.Ss, self.Vs)):
                     x = F.linear(inp[:,:,i,:], V.t(), bias=None)
-                    x = x * S
+                    # x = x * S
                     x = F.linear(x, U, bias=None)
                     y+=x
             else:
@@ -171,5 +176,8 @@ class SVDLinear(nn.Module):
             
         if self.bias is not None:
             y = y + self.bias
+        # nan check
+        if (y!=y).any():
+            breakpoint()
         return y
 

@@ -22,11 +22,26 @@ from modules.svd_linear import SVDLinear
 
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
-import tqdm
+from tqdm import tqdm
 from svd_init_utils import calib_input_distribution,calib_input_output_distribution
 
+def inf_nan_trace(model):
+    def hook(module, input, output):
+        if len(input) and isinstance(input[0],torch.Tensor):
+            if torch.isnan(input[0]).any():
+                breakpoint()
+            if torch.isinf(input[0]).any():
+                breakpoint()
+        if isinstance(output,torch.Tensor):
+            if torch.isnan(output).any():
+                breakpoint()
+            if torch.isinf(output).any():
+                breakpoint()
+    for name, module in model.named_modules():
+        module._forward_hooks.clear()
+        module.register_forward_hook(hook)
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
@@ -45,12 +60,13 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
             else:
                 modules.append(raw_linear)
     log_file.write(str([_[0] for _ in linear_dict]) + ",\n")
-    # binary search
+    # binary searchq
     split_trace=[]
     ratio_trace=[]
     raw_params=0
     compressed_params=0
-    for layeri,(full_name,raw_linear,father,name) in enumerate(linear_dict):
+    p=tqdm(linear_dict)
+    for layeri,(full_name,raw_linear,father,name) in enumerate(p):
         if 'head' in full_name:
             continue
         log_file.write(full_name+'\n')
@@ -80,6 +96,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                         reorder=args.reorder,
                 )
                 setattr(father, name, svd_linear)
+                # inf_nan_trace(model)
                 result = evaluate_model(
                     model,
                     tokenizer,
@@ -119,7 +136,8 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                 compressed_params+=U.numel()+S.numel()+V.numel()
         log_file.write(
             f"{split_trace}\n{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n")
-
+        print(f"now_comp_ratio {compressed_params/raw_params} ppl_target {ppl_target} - now_ppl {min_ppl}")
+        
     
         
 
@@ -149,8 +167,8 @@ def main(args):
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
     # calib_input_distribution(model, calib_loader)
     calib_input_output_distribution(model, calib_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, tokenizer, args)
+    print_gpu_memory("before convert_to_svd_linear")
+    convert_to_svd_linear(model, tokenizer, args)
 
 
 if __name__ == "__main__":

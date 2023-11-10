@@ -59,7 +59,7 @@ def train_layer(model,tokenizer,svd_linear, raw_linear):
     svd_linear._forward_pre_hooks.clear()
 
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
@@ -180,10 +180,10 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
+    print_gpu_memory("before convert_to_svd_linear")
 
     
-    convert_linear_to_svd_lora_linear(model, tokenizer, args)
+    convert_to_svd_linear(model, tokenizer, args)
 
 
 if __name__ == "__main__":

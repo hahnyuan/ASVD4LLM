@@ -17,15 +17,16 @@ from peft import PeftModel, LoraConfig, TaskType, get_peft_model
 from datasets import load_dataset
 
 from evaluate import evaluate_model
-from modules.svd_lora_linear import SVDLoRALinear
+# from modules.svd_lora_linear import SVDLoRALinear
+from modules.svd_linear import SVDLinear
 
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 import tqdm
-from svd_init_utils import calib_input_distribution
+from svd_init_utils import calib_input_distribution,calib_input_output_distribution
 
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+def convert_to_svd_linear(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
 
     linear_dict=[]
@@ -34,22 +35,29 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
         submodule = modules.pop()
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
+                if 'head' in name:
+                    continue
                 full_name = full_name_dict[raw_linear]
                 linear_dict.append((full_name,raw_linear,submodule,name))
             else:
                 modules.append(raw_linear)
+    log_file.write(str([_[0] for _ in linear_dict]) + ",\n")
+    log_file.flush()
     
     ratios=eval(args.ratios) # a list of ratios
+    if args.split:
+        split=eval(args.split) # a list of split points
     for i, ratio in enumerate(ratios):
         full_name,raw_linear,submodule,name=linear_dict[i]
         if ratio==1:
             setattr(submodule, name, raw_linear)
         else:
-            svd_linear = SVDLoRALinear.from_linear(
+            svd_linear = SVDLinear.from_linear(
                 raw_linear,
                 param_ratio=ratio,
-                lora_method=args.lora_method,
                 act_aware=args.act_aware,
+                ic_split=split[i][0] if args.split else 1,
+                oc_split=split[i][1] if args.split else 1,
             )
             setattr(submodule, name, svd_linear)
                 # print(
@@ -70,22 +78,13 @@ def total_model_parameters_buffers(model):
 
 
 def main(args):
-    # Dataset
-    # data_name = "mlabonne/guanaco-llama2-1k"
-    # data_name = 'SirNeural/flan_v2'
-    # data_name = 'databricks/databricks-dolly-15k'
-
-    # Model and tokenizer names
-    # base_model_name = "NousResearch/Llama-2-7b-chat-hf"
     model_id = args.model_id
-    # "./checkpoints/opt-1.3b-lora-mlabonne-enhanced-svd"
-
     # Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"  # Fix for fp16
 
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto",torch_dtype=torch.float16)
 
     model = model.to_bettertransformer()
 
@@ -94,9 +93,9 @@ def main(args):
     if args.act_aware:
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-        calib_input_distribution(model, calib_loader)
+        calib_input_output_distribution(model, calib_loader)
     if args.ratios:
-        convert_linear_to_svd_lora_linear(model, tokenizer, args)
+        convert_to_svd_linear(model, tokenizer, args)
     model_parameters, model_buffers = total_model_parameters_buffers(model)
     print("model tot: {}".format(model_parameters + model_buffers))
     # print fraction
@@ -126,17 +125,12 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--lora_method",
-        type=str,
-        default="UV",
-        help="lora method, default: UV",
-    )
-    parser.add_argument(
         "--act_aware",
         action="store_true",
         help="use act aware svd lora",
     )
     parser.add_argument("--ratios",type=str)
+    parser.add_argument("--split",type=str)
     args = parser.parse_args()
     
     path = f"output/{args.model_id.replace('/','_')}"

@@ -26,7 +26,7 @@ import tqdm
 from svd_init_utils import calib_input_distribution,calib_input_output_distribution
 
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
@@ -169,8 +169,8 @@ def main(args):
     calib_input_output_distribution(model, calib_loader)
     train_loader=sample_train_loaders('wikitext2',tokenizer,16,3,1024)
     get_gradient(model,train_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, tokenizer, args)
+    print_gpu_memory("before convert_to_svd_linear")
+    convert_to_svd_linear(model, tokenizer, args)
 
 
 if __name__ == "__main__":

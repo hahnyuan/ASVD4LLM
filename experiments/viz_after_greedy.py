@@ -27,7 +27,7 @@ from svd_init_utils import calib_input_distribution
 import matplotlib.pyplot as plt
 import re
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+def convert_to_svd_linear(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
 
     linear_dict=[]
@@ -132,7 +132,7 @@ def main(args):
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
     if args.ratios:
-        convert_linear_to_svd_lora_linear(model, tokenizer, args)
+        convert_to_svd_linear(model, tokenizer, args)
     model_parameters, model_buffers = total_model_parameters_buffers(model)
     print("model tot: {}".format(model_parameters + model_buffers))
     # print fraction

@@ -25,7 +25,7 @@ from tqdm import tqdm
 from svd_init_utils import calib_input_distribution
 
 
-def convert_linear_to_svd_lora_linear(module, args):
+def convert_to_svd_linear(module, args):
     # load json
     layer_sensitivities = {}
     all_ppls = []
@@ -162,10 +162,10 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, args)
+    print_gpu_memory("before convert_to_svd_linear")
+    convert_to_svd_linear(model, args)
     torch.cuda.empty_cache()
-    print_gpu_memory("after convert_linear_to_svd_lora_linear")
+    print_gpu_memory("after convert_to_svd_linear")
 
     svd_model_parameters, svd_model_buffers = total_model_parameters_buffers(model)
     print("svd model tot: {}".format(svd_model_parameters + svd_model_buffers))

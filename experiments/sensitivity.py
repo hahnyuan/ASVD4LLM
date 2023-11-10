@@ -25,7 +25,7 @@ import tqdm
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 
 
-def convert_linear_to_svd_lora_linear(model, tokenizer, args):
+def convert_to_svd_linear(model, tokenizer, args):
     full_name_dict = {module: name for name, module in model.named_modules()}
     modules = [model]
     while len(modules) > 0:
@@ -106,8 +106,8 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_output_distribution(model, calib_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, tokenizer, args)
+    print_gpu_memory("before convert_to_svd_linear")
+    convert_to_svd_linear(model, tokenizer, args)
 
 
 if __name__ == "__main__":

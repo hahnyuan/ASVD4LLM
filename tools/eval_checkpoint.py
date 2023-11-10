@@ -11,7 +11,7 @@ from transformers import (
 
 from evaluate import evaluate_model
 from svd_lora_train import (
-    convert_linear_to_svd_lora_linear,
+    convert_to_svd_linear,
     total_model_parameters_buffers,
 )
 
@@ -32,7 +32,7 @@ def main(args):
     tokenizer.padding_side = "right"  # Fix for fp16
 
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
-    # convert_linear_to_svd_lora_linear(model, args)
+    # convert_to_svd_linear(model, args)
     if args.path:
         if os.path.exists(args.path + "/pytorch_model.bin"):
             state_dict = torch.load(args.path + "/pytorch_model.bin", map_location="cuda:0")

@@ -180,14 +180,14 @@ def evaluate_model(
                 nlls.append(neg_log_likelihood)
                 if i == limit:
                     break
-                if i == 1:
-                    print(
-                        "memory_allocated",
-                        i,
-                        torch.cuda.memory_allocated() / 1024 / 1024,
-                        "max memory_allocated",
-                        torch.cuda.max_memory_allocated() / 1024**2,
-                    )
+                # if i == 1:
+                #     print(
+                #         "memory_allocated",
+                #         i,
+                #         torch.cuda.memory_allocated() / 1024 / 1024,
+                #         "max memory_allocated",
+                #         torch.cuda.max_memory_allocated() / 1024**2,
+                #     )
 
             ppl = torch.exp(torch.stack(nlls).sum() / (len(nlls) * lm.seqlen))
             print(dataset, ppl.item())

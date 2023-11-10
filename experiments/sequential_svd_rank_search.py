@@ -52,7 +52,7 @@ def fast_eval(model,tokenizer,args):
     ppl=result['wikitext2']
     return ppl
 
-def convert_linear_to_svd_lora_linear(model,tokenizer, args):
+def convert_to_svd_linear(model,tokenizer, args):
     # load json
     layer_sensitivities = {}
     ppl_thresh = args.ppl_thresh
@@ -202,10 +202,10 @@ def main(args):
         cablib_dataset = "wikitext2"
         calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
         calib_input_distribution(model, calib_loader)
-    print_gpu_memory("before convert_linear_to_svd_lora_linear")
-    convert_linear_to_svd_lora_linear(model, tokenizer, args)
+    print_gpu_memory("before convert_to_svd_linear")
+    convert_to_svd_linear(model, tokenizer, args)
     torch.cuda.empty_cache()
-    print_gpu_memory("after convert_linear_to_svd_lora_linear")
+    print_gpu_memory("after convert_to_svd_linear")
 
     svd_model_parameters, svd_model_buffers = total_model_parameters_buffers(model)
     print("svd model tot: {}".format(svd_model_parameters + svd_model_buffers))
