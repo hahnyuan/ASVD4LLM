@@ -115,15 +115,14 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     torch.save(traindataset, cache_file)
     return traindataset
 
-def get_eval_loaders(
-    name, tokenizer, nsamples=128, seed=0, seqlen=2048
-):
+
+def get_eval_loaders(name, tokenizer):
     if "wikitext2" in name:
         testdata = load_dataset(
             "wikitext",
             "wikitext-2-raw-v1",
             split="test",
-            )
+        )
         testenc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt")
         return testenc
     if "ptb" in name:

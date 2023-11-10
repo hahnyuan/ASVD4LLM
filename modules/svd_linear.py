@@ -8,9 +8,9 @@ class SVDLinear(nn.Module):
         self, Us, Ss, Vs, bias=None, split="no", ic_indexes=None, oc_indexes=None
     ) -> None:
         super().__init__()
-        self.Us=Us
-        self.Ss=Ss
-        self.Vs=Vs
+        self.Us=nn.ParameterList(Us)
+        self.Ss=nn.ParameterList(Ss)
+        self.Vs=nn.ParameterList(Vs)
         if bias is not None:
             self.bias = bias
         else:
@@ -42,6 +42,7 @@ class SVDLinear(nn.Module):
         else:
             rank = compressed_params // (linear.in_features + linear.out_features)
         # print("rank", rank)
+        w=linear.weight.data.float()
         if gradient_aware:
             if linear.in_features>linear.out_features:
                 input_g_mean=linear.input_grad.abs()
@@ -61,16 +62,12 @@ class SVDLinear(nn.Module):
 
             # breakpoint()
             # input_g_mean=torch.log2(input_g_mean).clamp_(min=1e-6)
-            w = linear.weight.data*input_g_mean.view(1,-1)
+            w = w*input_g_mean.view(1,-1)
             w = w*output_g_mean.view(-1,1)
-        else:
-            w = linear.weight.data
         if act_aware:
             input_abs_mean = linear.input_abs_mean
             input_abs_mean += 1e-6  # avoid zero division
-            w = linear.weight.data * input_abs_mean.view(1, -1)
-        else:
-            w = linear.weight.data
+            w = w * input_abs_mean.view(1, -1)
         ic_indexes=None
         oc_indexes=None
         if reorder and max(ic_split,oc_split)>1:
@@ -136,7 +133,8 @@ class SVDLinear(nn.Module):
 
         # print shapes
         # print(f"U: {U.size()}, S: {S.size()}, V: {V.size()}, bias: {bias.size()}")
-        return SVDLinear(Us, Ss, Vs, bias,split,ic_indexes,oc_indexes)
+        new_linear=SVDLinear(Us, Ss, Vs, bias,split,ic_indexes,oc_indexes)
+        return new_linear.to(linear.weight.dtype)
 
     def forward(self, inp):
         # compute USV^Tx + b

@@ -112,6 +112,7 @@ CUDA_VISIBLE_DEVICES='1' python experiments/test_after_greedy.py --model_id="fac
 
 CUDA_VISIBLE_DEVICES='0' python experiments/test_after_greedy.py --model_id="facebook/opt-1.3b" --lora_method "UV"
 
+CUDA_VISIBLE_DEVICES='2' python experiments/test_after_greedy.py --model_id="meta-llama/Llama-2-7b-hf"
 
 # 2d sensitivity
 CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity.py --model_id="facebook/opt-125m" --lora_method "reconstruct" --act_aware_2d
@@ -125,10 +126,27 @@ CUDA_VISIBLE_DEVICES='1' python experiments/greedy_prune.py --model_id="facebook
 
 CUDA_VISIBLE_DEVICES='0' python experiments/greedy_prune.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 8
 
+# greedy gradient
+
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy_gradient.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --gradient_aware
+
+# greedy init test
+
+CUDA_VISIBLE_DEVICES='3' python experiments/greedy_init_test.py --model_id="meta-llama/Llama-2-7b-hf" --calib_samples 15
+
 # greedy split
 
 CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --act_aware
 
-CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="facebook/opt-1.3b" --ppl_target_st 15.8 --ppl_target_ed 20
+CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="facebook/opt-1.3b" --ppl_target_st 15.8 --ppl_target_ed 20 --act_aware
 
-CUDA_VISIBLE_DEVICES='3' python experiments/greedy_split.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 8
+CUDA_VISIBLE_DEVICES='3' python experiments/greedy_split.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 8 --act_aware
+
+
+CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware
+
+CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 8 --act_aware --test_split 8
+
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="huggyllama/llama-7b" --ppl_target_st 5.8 --ppl_target_ed 10 --act_aware --test_split 4
+
+

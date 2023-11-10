@@ -30,7 +30,7 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
-    log_file=open(f"{path}/greedy_split_{args.act_aware}{args.reorder}.json","a+")
+    log_file=open(f"{path}/greedy_split_{args.act_aware}{args.reorder}{args.test_split}.json","a+")
 
     full_name_dict = {module: name for name, module in model.named_modules()}
     
@@ -53,8 +53,6 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
     for layeri,(full_name,raw_linear,father,name) in enumerate(linear_dict):
         if 'head' in full_name:
             continue
-        if 'fc' not in full_name:
-            continue
         log_file.write(full_name+'\n')
         low=0
         high=1
@@ -62,9 +60,9 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
         best_split=None
         best_svd_linear=None
         if raw_linear.in_features>raw_linear.out_features:
-            split_candidates=((1,1),(4,1))
+            split_candidates=((1,1),(args.test_split,1))
         elif raw_linear.in_features<raw_linear.out_features:
-            split_candidates=((1,1),(1,4))
+            split_candidates=((1,1),(1,args.test_split))
         else:
             split_candidates=((1,1),)
         for i in range(4):
@@ -91,6 +89,10 @@ def convert_linear_to_svd_lora_linear(model, tokenizer, args):
                     limit=15,
                 )
                 ppl=result["wikitext2"]
+                # nan check
+                if ppl!=ppl:
+                    breakpoint()
+                    ppl=1e10
                 if min_ppl is None or ppl<min_ppl:
                     min_ppl=ppl
                     min_split=(ic_split,oc_split)
@@ -129,22 +131,14 @@ def total_model_parameters_buffers(model):
 
 
 def main(args):
-    # Dataset
-    # data_name = "mlabonne/guanaco-llama2-1k"
-    # data_name = 'SirNeural/flan_v2'
-    # data_name = 'databricks/databricks-dolly-15k'
-
-    # Model and tokenizer names
-    # base_model_name = "NousResearch/Llama-2-7b-chat-hf"
     model_id = args.model_id
-    # "./checkpoints/opt-1.3b-lora-mlabonne-enhanced-svd"
 
     # Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"  # Fix for fp16
 
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto",torch_dtype=torch.float16)
 
     model = model.to_bettertransformer()
 
@@ -179,6 +173,11 @@ if __name__ == "__main__":
         "--act_aware",
         action="store_true",
         help="use act aware svd",
+    )
+    parser.add_argument(
+        "--test_split",
+        type=int,
+        default=4,
     )
     parser.add_argument(
         "--reorder",

@@ -8,6 +8,7 @@ from lm_eval.base import BaseLM
 from lm_eval import evaluator
 from datasets import load_dataset
 import time
+import re
 
 
 class EvalLM(BaseLM):
@@ -127,9 +128,7 @@ def evaluate_model(
     model_name,
     tasks,
     eval_ppl="",
-    seed=1,
     num_fewshot=0,
-    cache_dir="./data/",
     limit=-1,
     batch_size=1,
 ):
@@ -144,35 +143,17 @@ def evaluate_model(
     results = {}
     if eval_ppl:
         for dataset in eval_ppl.split(","):
-            # for dataset in ['c4']:
-            if "huggyllama/llama" in model_name:
-                model_type = "llama"
-            elif "facebook/opt" in model_name:
-                model_type = "opt"
-            else:
-                raise NotImplementedError
-            cache_testloader = f"/tmp/{dataset}_testloader_{model_type}_all.cache"
+            cache_testloader = (
+                f"/tmp/{dataset}_testloader_{model_name.replace('/', '_')}_all.cache"
+            )
             if os.path.exists(cache_testloader):
                 testloader = torch.load(cache_testloader)
                 # print(f"load calibration from {cache_testloader}")
             else:
-                testloader = get_eval_loaders(
-                    dataset,
-                    tokenizer,
-                    seed=seed,
-                    model=model_name,
-                    seqlen=lm.seqlen,
-                    cache_dir=cache_dir,
-                )
+                testloader = get_eval_loaders(dataset, tokenizer)
                 torch.save(testloader, cache_testloader)
             # print(dataset)
-            if "c4" == dataset:
-                testenc = testloader
-            else:
-                testenc = (
-                    testloader.input_ids
-                )  # 有个小坑 如果某个input_ids 有超过2*2048个词，nsamples 就不准了
-
+            testenc = testloader.input_ids
             nsamples = testenc.numel() // lm.seqlen
             use_cache = lm.model.config.use_cache
             lm.model.config.use_cache = False
@@ -207,7 +188,7 @@ def evaluate_model(
                         "max memory_allocated",
                         torch.cuda.max_memory_allocated() / 1024**2,
                     )
-            
+
             ppl = torch.exp(torch.stack(nlls).sum() / (len(nlls) * lm.seqlen))
             print(dataset, ppl.item())
             lm.model.config.use_cache = use_cache
