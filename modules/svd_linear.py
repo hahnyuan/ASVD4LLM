@@ -34,6 +34,8 @@ class SVDLinear(nn.Module):
         ic_split=1,
         oc_split=1,
     ):
+        if param_ratio>=1:
+            return linear
         n_params = linear.weight.numel()
         compressed_params = int(n_params * param_ratio)
         assert ic_split==1 or oc_split==1

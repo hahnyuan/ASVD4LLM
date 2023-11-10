@@ -23,103 +23,155 @@ from modules.svd_linear import SVDLinear
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 from tqdm import tqdm
-from svd_init_utils import calib_input_distribution,calib_input_output_distribution
+from svd_init_utils import calib_input_distribution, calib_input_output_distribution
+
 
 def inf_nan_trace(model):
     def hook(module, input, output):
-        if len(input) and isinstance(input[0],torch.Tensor):
+        if len(input) and isinstance(input[0], torch.Tensor):
             if torch.isnan(input[0]).any():
                 breakpoint()
             if torch.isinf(input[0]).any():
                 breakpoint()
-        if isinstance(output,torch.Tensor):
+        if isinstance(output, torch.Tensor):
             if torch.isnan(output).any():
                 breakpoint()
             if torch.isinf(output).any():
                 breakpoint()
+
     for name, module in model.named_modules():
         module._forward_hooks.clear()
         module.register_forward_hook(hook)
 
+
 def reorder_mlp(model):
     full_name_dict = {module: name for name, module in model.named_modules()}
-    if 'opt' in args.model_id:
-        mlps=[(_.fc1,_.fc2) for _ in model.model.decoder.layers]
-    elif 'llama' in args.model_id:
-        mlps=[(_.mlp.gate_proj,_.mlp.up_proj,_.mlp.down_proj) for _ in model.model.layers]
+    if "opt" in args.model_id:
+        mlps = [(_.fc1, _.fc2) for _ in model.model.decoder.layers]
+    elif "llama" in args.model_id:
+        mlps = [
+            (_.mlp.gate_proj, _.mlp.up_proj, _.mlp.down_proj)
+            for _ in model.model.layers
+        ]
     else:
         raise NotImplementedError
-    if args.test_split==1:
+    if args.test_split == 1:
         return
     for mlp in mlps:
-        act_sensitivity=mlp[-1].input_abs_mean
-        indexes=torch.argsort(act_sensitivity)
-        reorder_indexes=indexes.view(-1,args.test_split).transpose(0,1).reshape(-1)
+        act_sensitivity = mlp[-1].input_abs_mean
+        indexes = torch.argsort(act_sensitivity)
+        reorder_indexes = indexes.view(-1, args.test_split).transpose(0, 1).reshape(-1)
         # reorder output
         for layer in mlp[:-1]:
-            layer.weight.data=layer.weight.data[reorder_indexes]
+            layer.weight.data = layer.weight.data[reorder_indexes]
             if layer.bias is not None:
-                layer.bias.data=layer.bias.data[reorder_indexes]
+                layer.bias.data = layer.bias.data[reorder_indexes]
         # reorder input
-        mlp[-1].weight.data=mlp[-1].weight.data[:,reorder_indexes]
-        mlp[-1].input_abs_mean=mlp[-1].input_abs_mean[reorder_indexes]
+        mlp[-1].weight.data = mlp[-1].weight.data[:, reorder_indexes]
+        mlp[-1].input_abs_mean = mlp[-1].input_abs_mean[reorder_indexes]
         print(f"reorder for {full_name_dict[mlp[-1]]} done")
+
 
 def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
-    log_file=open(f"{path}/greedy_split_a{args.act_aware}_r{args.reorder}_s{args.test_split}.json","a+")
+    log_file = open(
+        f"{path}/greedy_split_a{args.act_aware}_r{args.reorder}_s{args.test_split}.json",
+        "a+",
+    )
 
     full_name_dict = {module: name for name, module in model.named_modules()}
-    
-    linear_dict=[]
+    if "opt" in args.model_id:
+        self_attns = [
+            (
+                _.self_attn.q_proj,
+                _.self_attn.k_proj,
+                _.self_attn.v_proj,
+                _.self_attn.out_proj,
+            )
+            for _ in model.model.decoder.layers
+        ]
+        mlps = [(_.fc1, _.fc2) for _ in model.model.decoder.layers]
+    elif "llama" in args.model_id:
+        self_attns = [
+            (_.attn.q_proj, _.attn.k_proj, _.attn.v_proj, _.attn.out_proj)
+            for _ in model.model.layers
+        ]
+        mlps = [
+            (_.mlp.gate_proj, _.mlp.up_proj, _.mlp.down_proj)
+            for _ in model.model.layers
+        ]
+    else:
+        raise NotImplementedError
+
+    linear_info = {}
     modules = [model]
     while len(modules) > 0:
         submodule = modules.pop()
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
-                linear_dict.append((full_name,raw_linear,submodule,name))
+                linear_info[raw_linear] = {
+                    "father": submodule,
+                    "name": name,
+                    "full_name": full_name,
+                }
             else:
                 modules.append(raw_linear)
-    log_file.write(str([_[0] for _ in linear_dict]) + ",\n")
-    # binary searchq
-    split_trace=[]
+
+    # multi-binary search
     ratio_trace=[]
     raw_params=0
     compressed_params=0
-    p=tqdm(linear_dict)
-    for layeri,(full_name,raw_linear,father,name) in enumerate(p):
-        if 'head' in full_name:
-            continue
-        log_file.write(full_name+'\n')
-        low=0
-        high=1
-        ppl_target=args.ppl_target_st+(args.ppl_target_ed-args.ppl_target_st)*(layeri+1)/len(linear_dict)
-        best_split=None
-        best_svd_linear=None
-        if raw_linear.in_features>raw_linear.out_features:
-            split_candidates=((1,1),(args.test_split,1))
-        elif raw_linear.in_features<raw_linear.out_features:
-            split_candidates=((1,1),(1,args.test_split))
-        else:
-            split_candidates=((1,1),)
-        for i in range(4):
-            ratio=(low+high)/2
-            min_ppl=None
-            min_split=None
-            min_svd_linear=None
-            for ic_split,oc_split in split_candidates:
-                svd_linear=SVDLinear.from_linear(
-                        raw_linear,
-                        param_ratio=ratio,
-                        act_aware=args.act_aware,
-                        oc_split=oc_split,
-                        ic_split=ic_split,
+    for layeri, mlp in enumerate(mlps):
+        ppl_target = args.ppl_target_st + (args.ppl_target_ed - args.ppl_target_st) * (
+            layeri + 1
+        ) / len(mlps)
+        delta_ratio=[0.25 for _ in mlp]
+        now_ratio=[0.5 for _ in mlp]
+        for fci,fc in enumerate(mlp):
+            raw_params += fc.weight.numel()
+            ratio=now_ratio[fci]
+            svd_linear = SVDLinear.from_linear(
+                fc,
+                param_ratio=ratio,
+                act_aware=args.act_aware,
+                oc_split=args.test_split if fc.in_features < fc.out_features else 1,
+                ic_split=args.test_split if fc.in_features > fc.out_features else 1,
+            )
+            setattr(linear_info[fc]["father"], linear_info[fc]["name"], svd_linear)
+        result = evaluate_model(
+            model,
+            tokenizer,
+            args.model_id,
+            "",
+            eval_ppl="wikitext2",
+            limit=15,
+        )
+        ppl = result["wikitext2"]
+        if ppl != ppl:
+            breakpoint()
+            ppl = 1e10
+        prev_ppl=ppl
+        is_ratio_up = ppl > ppl_target
+        # select the fc that makes ppl improved most
+        # binary search
+        for i in range(8):
+            best_fci=None
+            best_delta_ppl=None
+            for fci,fc in enumerate(mlp):
+                ratio=now_ratio[fci]
+                ratio+=delta_ratio[fci] if is_ratio_up else -delta_ratio[fci]
+                svd_linear = SVDLinear.from_linear(
+                    fc,
+                    param_ratio=ratio,
+                    act_aware=args.act_aware,
+                    oc_split=args.test_split if fc.in_features < fc.out_features else 1,
+                    ic_split=args.test_split if fc.in_features > fc.out_features else 1,
                 )
-                setattr(father, name, svd_linear)
-                # inf_nan_trace(model)
+                prev_svd_linear=getattr(linear_info[fc]["father"], linear_info[fc]["name"])
+                setattr(linear_info[fc]["father"], linear_info[fc]["name"], svd_linear)
                 result = evaluate_model(
                     model,
                     tokenizer,
@@ -128,41 +180,46 @@ def convert_to_svd_linear(model, tokenizer, args):
                     eval_ppl="wikitext2",
                     limit=15,
                 )
-                ppl=result["wikitext2"]
-                # nan check
-                if ppl!=ppl:
-                    # breakpoint()
-                    ppl=1e10
-                if min_ppl is None or ppl<min_ppl:
-                    min_ppl=ppl
-                    min_split=(ic_split,oc_split)
-                    min_svd_linear=svd_linear
-                    
-                log_file.write(str({"ic/oc split": (ic_split,oc_split),"ratio": ratio,"wikitext2":result["wikitext2"]}) + ",\n")
+                ppl = result["wikitext2"]
+                if ppl != ppl:
+                    breakpoint()
+                    ppl = 1e10
+                delta_ppl=ppl-prev_ppl
+                if best_delta_ppl is None or delta_ppl>best_delta_ppl:
+                    best_delta_ppl=delta_ppl
+                    best_fci=fci
+                setattr(linear_info[fc]["father"], linear_info[fc]["name"], prev_svd_linear)
+                log_file.write(f"{fci} {'up' if is_ratio_up else 'down'} {prev_ppl}+{delta_ppl}={ppl}\n")
                 log_file.flush()
-            if min_ppl>ppl_target:
-                low=ratio
-            else:
-                high=ratio
-                best_split=min_split
-                best_svd_linear=min_svd_linear
-            
-        split_trace.append(best_split)
-        ratio_trace.append(high)
-        raw_params+=raw_linear.weight.numel()
-        if high==1:
-            setattr(father, name, raw_linear)
-            compressed_params+=raw_linear.weight.numel()
-        else:
-            setattr(father, name, best_svd_linear)
-            for U,S,V in zip(best_svd_linear.Us,best_svd_linear.Ss,best_svd_linear.Vs):
-                compressed_params+=U.numel()+S.numel()+V.numel()
+            now_ratio[best_fci]+=delta_ratio[best_fci] if is_ratio_up else -delta_ratio[best_fci]
+            prev_ppl+=best_delta_ppl
+            is_ratio_up = prev_ppl > ppl_target
+            delta_ratio[best_fci]/=2
+            fc=mlp[best_fci]
+            ratio=now_ratio[best_fci]
+            svd_linear = SVDLinear.from_linear(
+                fc,
+                param_ratio=ratio,
+                act_aware=args.act_aware,
+                oc_split=args.test_split if fc.in_features < fc.out_features else 1,
+                ic_split=args.test_split if fc.in_features > fc.out_features else 1,
+            )
+            setattr(linear_info[fc]["father"], linear_info[fc]["name"], svd_linear)
+            log_file.write(f"== change {best_fci} {'up' if is_ratio_up else 'down'} {now_ratio}\n")
+        for fci,fc in enumerate(mlp):
+            ratio=now_ratio[fci]
+            ratio_trace.append(ratio)
+            new_fc=getattr(linear_info[fc]["father"], linear_info[fc]["name"])
+            for U, S, V in zip(
+                new_fc.Us, new_fc.Ss, new_fc.Vs
+            ):
+                compressed_params += U.numel() +  V.numel()
         log_file.write(
-            f"{split_trace}\n{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n")
-        print(f"now_comp_ratio {compressed_params/raw_params} ppl_target {ppl_target} - now_ppl {min_ppl}")
-        
-    
-        
+            f"{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n"
+        )
+        print(
+            f"now_comp_ratio {compressed_params/raw_params} ppl_target {ppl_target} - now_ppl {prev_ppl}"
+        )
 
 
 def total_model_parameters_buffers(model):
@@ -179,7 +236,9 @@ def main(args):
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"  # Fix for fp16
 
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto",torch_dtype=torch.float16)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, device_map="auto", torch_dtype=torch.float16
+    )
 
     model = model.to_bettertransformer()
 
