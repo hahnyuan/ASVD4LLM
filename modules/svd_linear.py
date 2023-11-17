@@ -113,7 +113,10 @@ class SVDLinear(nn.Module):
             Ss=[]
             Vs=[]
             for i in range(oc_split):
-                U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
+                try:
+                    U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
+                except:
+                    return None
                 if act_aware:
                     V=V/input_abs_mean.view(-1,1)
                 Us.append(U)

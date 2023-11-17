@@ -134,6 +134,9 @@ CUDA_VISIBLE_DEVICES='0' python experiments/greedy_gradient.py --model_id="faceb
 
 CUDA_VISIBLE_DEVICES='3' python experiments/greedy_init_test.py --model_id="meta-llama/Llama-2-7b-hf" --calib_samples 15
 
+CUDA_VISIBLE_DEVICES='3' python experiments/greedy_init_test.py --model_id="meta-llama/Llama-2-13b-hf" --calib_samples 15
+
+
 # greedy split
 
 CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --act_aware
@@ -154,9 +157,22 @@ CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="facebook
 
 CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="facebook/opt-1.3b" --ppl_target_st 15.8 --ppl_target_ed 20 --act_aware
 
+CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-13b-hf" --ppl_target_st 4.9 --ppl_target_ed 5.5 --act_aware
+
+CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 6.5 --act_aware
+
 # greedy split reorder
 CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --act_aware --reorder
 
 CUDA_VISIBLE_DEVICES='0' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware --reorder
 
 CUDA_VISIBLE_DEVICES='1' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware
+
+# greedy split reorder cosearch
+CUDA_VISIBLE_DEVICES='2' python experiments/greedy_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 7 --act_aware --reorder --cosearch
+
+
+# greedy rounded split
+CUDA_VISIBLE_DEVICES='0' python experiments/greedy_iterative_split.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --act_aware --n_round 2
+
+CUDA_VISIBLE_DEVICES='1' python experiments/greedy_iterative_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 6.5 --act_aware --n_round 2

@@ -42,8 +42,8 @@ def main(args):
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"  # Fix for fp16
 
-    # model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto",torch_dtype=torch.float16)
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto",torch_dtype=torch.float16)
+    # model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto")
 
     model = model.to_bettertransformer()
 
@@ -64,6 +64,15 @@ def main(args):
     )
     print(result)
 
+    result = evaluate_model(
+        model,
+        tokenizer,
+        args.model_id,
+        "qatllm",
+        eval_ppl="wikitext2,ptb,c4",
+        limit=200,
+    )
+    print(result)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Model Training Script")

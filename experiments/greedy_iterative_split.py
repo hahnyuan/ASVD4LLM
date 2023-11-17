@@ -77,36 +77,12 @@ def convert_to_svd_linear(model, tokenizer, args):
     if not os.path.exists(path):
         os.makedirs(path)
     log_file = open(
-        f"{path}/greedy_split_a{args.act_aware}_r{args.reorder}_s{args.test_split}_co{args.cosearch}.json",
+        f"{path}/greedy_it{args.n_round}_split_a{args.act_aware}_r{args.reorder}_s{args.test_split}_co{args.cosearch}.json",
         "a+",
     )
 
     full_name_dict = {module: name for name, module in model.named_modules()}
-    if "opt" in args.model_id:
-        self_attns = [
-            (
-                _.self_attn.q_proj,
-                _.self_attn.k_proj,
-                _.self_attn.v_proj,
-                _.self_attn.out_proj,
-            )
-            for _ in model.model.decoder.layers
-        ]
-        mlps = [(_.fc1, _.fc2) for _ in model.model.decoder.layers]
-    elif "llama" in args.model_id:
-        self_attns = [
-            (_.self_attn.q_proj, _.self_attn.k_proj, _.self_attn.v_proj, _.self_attn.o_proj)
-            for _ in model.model.layers
-        ]
-        mlps = [
-            (_.mlp.gate_proj, _.mlp.up_proj, _.mlp.down_proj)
-            for _ in model.model.layers
-        ]
-    else:
-        raise NotImplementedError
-    all_layers=[]
-    for self_attn,block in zip(self_attns,mlps):
-        all_layers+=[self_attn,block]
+    all_linears = []
 
     linear_info = {}
     modules = [model]
@@ -115,6 +91,7 @@ def convert_to_svd_linear(model, tokenizer, args):
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
+                all_linears.append(raw_linear)
                 linear_info[raw_linear] = {
                     "father": submodule,
                     "name": name,
@@ -124,89 +101,55 @@ def convert_to_svd_linear(model, tokenizer, args):
                 modules.append(raw_linear)
 
     # binary searchq
-    split_trace=[]
-    ratio_trace=[]
-    raw_params=0
-    compressed_params=0
-    for blocki,block in enumerate(all_layers[::-1]):
-        ppl_target=args.ppl_target_st+(args.ppl_target_ed-args.ppl_target_st)*(blocki+1)/len(all_layers)
-        log_file.write(f"mlp {full_name_dict[block[0]]}, ppl_target={ppl_target}\n")
-        # co-search
-        if args.cosearch:
-            low=0
-            high=1
-            for i in range(4):
-                ratio=(low+high)/2
-                for fc in block:
-                    svd_linear=SVDLinear.from_linear(
-                            fc,
-                            param_ratio=ratio,
-                            act_aware=args.act_aware,
-                            oc_split=args.test_split if fc.in_features<fc.out_features else 1,
-                            ic_split=args.test_split if fc.in_features>fc.out_features else 1,
-                    )
-                    setattr(linear_info[fc]["father"], linear_info[fc]["name"], svd_linear)
-                result = evaluate_model(
-                    model,
-                    tokenizer,
-                    args.model_id,
-                    "",
-                    eval_ppl="wikitext2",
-                    limit=15,
-                )
-                ppl=result["wikitext2"]
-                # nan check
-                if ppl!=ppl:
-                    # breakpoint()
-                    ppl=1e10
-                log_file.write(f"cosearch {ratio} {ppl}\n")
-                log_file.flush()
-                if ppl>ppl_target:
-                    low=ratio
-                else:
-                    high=ratio
-            for fc in block:
-                svd_linear=SVDLinear.from_linear(
-                        fc,
-                        param_ratio=high,
-                        act_aware=args.act_aware,
-                        oc_split=args.test_split if fc.in_features<fc.out_features else 1,
-                        ic_split=args.test_split if fc.in_features>fc.out_features else 1,
-                )
-                setattr(linear_info[fc]["father"], linear_info[fc]["name"], svd_linear)
-                
-        # individual search
-        for raw_linear in block:
-            full_name=linear_info[raw_linear]["full_name"]
-            father=linear_info[raw_linear]["father"]
-            name=linear_info[raw_linear]["name"]
+    for roundi in range(args.n_round):
+        split_trace = []
+        ratio_trace = []
+        raw_params = 0
+        compressed_params = 0
+        for layeri, raw_linear in enumerate(all_linears):
+            # individual search
+            now_progress = (roundi * len(all_linears) + layeri) / (
+                len(all_linears) * args.n_round
+            )
+            ppl_target = (
+                args.ppl_target_st
+                + (args.ppl_target_ed - args.ppl_target_st) * now_progress
+            )
+            msg = f"round {roundi} mlp {full_name_dict[raw_linear]}, ppl_target={ppl_target}\n"
+            log_file.write(msg)
+            print(msg)
+            full_name = linear_info[raw_linear]["full_name"]
+            father = linear_info[raw_linear]["father"]
+            name = linear_info[raw_linear]["name"]
             log_file.write(f"individual search {full_name}\n")
-            low=0
-            high=1
-            
-            best_split=None
-            best_svd_linear=None
-            if raw_linear.in_features>raw_linear.out_features:
+            low = 0
+            high = 1
+
+            best_split = None
+            best_svd_linear = None
+            if raw_linear.in_features > raw_linear.out_features:
                 # split_candidates=((1,1),(args.test_split,1))
-                split_candidates=((args.test_split,1),)
-            elif raw_linear.in_features<raw_linear.out_features:
+                split_candidates = ((args.test_split, 1),)
+            elif raw_linear.in_features < raw_linear.out_features:
                 # split_candidates=((1,1),(1,args.test_split))
-                split_candidates=((1,args.test_split),)
+                split_candidates = ((1, args.test_split),)
             else:
-                split_candidates=((1,1),)
+                split_candidates = ((1, 1),)
             for i in range(4):
-                ratio=(low+high)/2
-                min_ppl=None
-                min_split=None
-                min_svd_linear=None
-                for ic_split,oc_split in split_candidates:
-                    svd_linear=SVDLinear.from_linear(
-                            raw_linear,
-                            param_ratio=ratio,
-                            act_aware=args.act_aware,
-                            oc_split=oc_split,
-                            ic_split=ic_split,
+                ratio = (low + high) / 2
+                min_ppl = None
+                min_split = None
+                min_svd_linear = None
+                for ic_split, oc_split in split_candidates:
+                    svd_linear = SVDLinear.from_linear(
+                        raw_linear,
+                        param_ratio=ratio,
+                        act_aware=args.act_aware,
+                        oc_split=oc_split,
+                        ic_split=ic_split,
                     )
+                    if svd_linear is None:
+                        continue
                     setattr(father, name, svd_linear)
                     # inf_nan_trace(model)
                     result = evaluate_model(
@@ -217,38 +160,52 @@ def convert_to_svd_linear(model, tokenizer, args):
                         eval_ppl="wikitext2",
                         limit=15,
                     )
-                    ppl=result["wikitext2"]
+                    ppl = result["wikitext2"]
                     # nan check
-                    if ppl!=ppl:
+                    if ppl != ppl:
                         # breakpoint()
-                        ppl=1e10
-                    if min_ppl is None or ppl<min_ppl:
-                        min_ppl=ppl
-                        min_split=(ic_split,oc_split)
-                        min_svd_linear=svd_linear
-                        
-                    log_file.write(str({"ic/oc split": (ic_split,oc_split),"ratio": ratio,"wikitext2":result["wikitext2"]}) + ",\n")
+                        ppl = 1e10
+                    if min_ppl is None or ppl < min_ppl:
+                        min_ppl = ppl
+                        min_split = (ic_split, oc_split)
+                        min_svd_linear = svd_linear
+
+                    log_file.write(
+                        str(
+                            {
+                                "ic/oc split": (ic_split, oc_split),
+                                "ratio": ratio,
+                                "wikitext2": result["wikitext2"],
+                            }
+                        )
+                        + ",\n"
+                    )
                     log_file.flush()
-                if min_ppl>ppl_target:
-                    low=ratio
+                if min_ppl > ppl_target:
+                    low = ratio
                 else:
-                    high=ratio
-                    best_split=min_split
-                    best_svd_linear=min_svd_linear
-                
+                    high = ratio
+                    best_split = min_split
+                    best_svd_linear = min_svd_linear
+
             split_trace.append(best_split)
             ratio_trace.append(high)
-            raw_params+=raw_linear.weight.numel()
-            if high==1:
+            raw_params += raw_linear.weight.numel()
+            if high == 1:
                 setattr(father, name, raw_linear)
-                compressed_params+=raw_linear.weight.numel()
+                compressed_params += raw_linear.weight.numel()
             else:
                 setattr(father, name, best_svd_linear)
-                for U,S,V in zip(best_svd_linear.Us,best_svd_linear.Ss,best_svd_linear.Vs):
-                    compressed_params+=U.numel()+S.numel()+V.numel()
+                for U, S, V in zip(
+                    best_svd_linear.Us, best_svd_linear.Ss, best_svd_linear.Vs
+                ):
+                    compressed_params += U.numel() + S.numel() + V.numel()
             log_file.write(
-                f"{split_trace}\n{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n")
-            print(f"now_comp_ratio {compressed_params/raw_params} ppl_target {ppl_target} - now_ppl {min_ppl}")
+                f"{split_trace}\n{ratio_trace}\n ppl_target {ppl_target} - now_compression_ratio {compressed_params/raw_params}\n"
+            )
+            print(
+                f"now_comp_ratio {compressed_params/raw_params} ppl_target {ppl_target} - now_ppl {min_ppl}"
+            )
 
 
 def total_model_parameters_buffers(model):
@@ -309,6 +266,11 @@ if __name__ == "__main__":
         "--test_split",
         type=int,
         default=4,
+    )
+    parser.add_argument(
+        "--n_round",
+        type=int,
+        default=2,
     )
     parser.add_argument(
         "--reorder",
