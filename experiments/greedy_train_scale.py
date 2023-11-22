@@ -6,6 +6,7 @@ import torch.nn as nn
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    OPTPreTrainedModel,
     TrainingArguments,
     pipeline,
 )
@@ -19,13 +20,13 @@ from datasets import load_dataset
 from evaluate import evaluate_model
 from modules.svd_lora_linear import SVDLoRALinear
 from modules.svd_linear import SVDLinear
+from modules.train_scale_linear import TrainScaleLinear
 
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 from tqdm import tqdm
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
-import numpy as np
-
+import torch.nn.functional as F
 
 def inf_nan_trace(model):
     def hook(module, input, output):
@@ -72,13 +73,107 @@ def reorder_mlp(model):
         mlp[-1].input_abs_mean = mlp[-1].input_abs_mean[reorder_indexes]
         print(f"reorder for {full_name_dict[mlp[-1]]} done")
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+
+    @property
+    def avg(self):
+        return self.sum / self.count
+
+def train_input_output_scale(model, calib_loader):
+    path=f"output/{args.model_id.replace('/','_')}/all_scales.pt"
+    if args.load_scale and os.path.exists(path):
+        all_scales=torch.load(path)
+        for name, module in model.named_modules():
+            if isinstance(module, nn.Linear):
+                module.Si=all_scales[name]['Si'].to(module.weight.device)
+                module.So=all_scales[name]['So'].to(module.weight.device)
+                print(f"load scale for {name} done")
+        return
+    name_dict = {name:module for name, module in model.named_modules()}
+    train_params=[]
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            new_module=TrainScaleLinear.from_linear(module)
+            father_name_ind=name.rfind(".")
+            if father_name_ind==-1:
+                father=model
+            else:
+                father_name=name[:father_name_ind]
+                father=name_dict[father_name]
+            setattr(father,name[father_name_ind+1:],new_module)
+            print(f"train scale for {name} done, father {father_name}")
+            train_params.append(new_module.Si)
+            train_params.append(new_module.So)
+            # break
+    # model.train()
+    model.eval()
+    optimizer=torch.optim.Adam(train_params,lr=1e-2)
+    for epoch in range(1):
+        loss_meter=AverageMeter()
+        pbar=tqdm(calib_loader)
+        for batch in pbar:
+            # batch = batch.to(model.device)
+            batch = {k: v.to(model.device) for k, v in batch.items()}
+            for name, module in model.named_modules():
+                if isinstance(module, TrainScaleLinear):
+                    module.is_scale=False
+            raw_out=model(**batch).logits.detach()
+            # out=model(**batch).logits
+            
+            for name, module in model.named_modules():
+                if isinstance(module, TrainScaleLinear):
+                    module.is_scale=True
+            out=model(**batch).logits
+            loss=F.kl_div(F.log_softmax(out,dim=-1),F.softmax(raw_out,dim=-1),reduction="batchmean")
+            # loss=F.mse_loss(out,raw_out)
+            # breakpoint()
+            loss_meter.update(loss.item(),batch["input_ids"].size(0))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            pbar.set_description(f"epoch {epoch} loss {loss_meter.avg}")
+        # breakpoint()
+    all_scales={}
+    for name, module in model.named_modules():
+        if isinstance(module, TrainScaleLinear):
+            ic,oc=module.weight.shape
+            new_module=nn.Linear(ic,oc,bias= module.bias is not None)
+            new_module.weight.data=module.weight.data
+            new_module.bias=module.bias
+            new_module.Si=module.Si
+            new_module.So=module.So
+            all_scales[name]={'Si':module.Si.detach().cpu(),'So':module.So.detach().cpu()}
+            father_name_ind=name.rfind(".")
+            if father_name_ind==-1:
+                father=model
+            else:
+                father_name=name[:father_name_ind]
+                father=name_dict[father_name]
+            setattr(father,name[father_name_ind+1:],new_module)
+            print(f"train scale for {name} done, father {father_name}")
+    torch.save(all_scales,path)
+
 
 def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
     log_file = open(
-        f"{path}/greedy_it{args.n_round}_split_a{args.act_aware}_r{args.reorder}_s{args.test_split}_co{args.cosearch}.json",
+        f"{path}/greedy_train_scale_a{args.act_aware}_r{args.reorder}_s{args.test_split}_co{args.cosearch}.json",
         "a+",
     )
 
@@ -102,6 +197,7 @@ def convert_to_svd_linear(model, tokenizer, args):
                 modules.append(raw_linear)
 
     # binary searchq
+    args.n_round=1
     for roundi in range(args.n_round):
         split_trace = []
         ratio_trace = []
@@ -146,9 +242,10 @@ def convert_to_svd_linear(model, tokenizer, args):
                         svd_linear = SVDLinear.from_linear(
                             raw_linear,
                             param_ratio=ratio,
-                            act_aware=args.act_aware,
-                            oc_split=oc_split,
-                            ic_split=ic_split,
+                            train_scale=True,
+                            # act_aware=args.act_aware,
+                            # oc_split=oc_split,
+                            # ic_split=ic_split,
                         )
                     except:
                         continue
@@ -210,7 +307,6 @@ def convert_to_svd_linear(model, tokenizer, args):
                 f"now_comp_ratio {compressed_params/raw_params} ppl_target {ppl_target} - now_ppl {min_ppl}"
             )
 
-
 def total_model_parameters_buffers(model):
     return sum(p.numel() for p in model.parameters()), sum(
         p.numel() for p in model.buffers()
@@ -237,7 +333,8 @@ def main(args):
     cablib_dataset = "wikitext2"
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
     # calib_input_distribution(model, calib_loader)
-    calib_input_output_distribution(model, calib_loader)
+    # calib_input_output_distribution(model, calib_loader)
+    train_input_output_scale(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
     if args.reorder:
         reorder_mlp(model)
@@ -271,16 +368,15 @@ if __name__ == "__main__":
         default=4,
     )
     parser.add_argument(
-        "--n_round",
-        type=int,
-        default=2,
-    )
-    parser.add_argument(
         "--reorder",
         action="store_true",
     )
     parser.add_argument(
         "--cosearch",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--load_scale",
         action="store_true",
     )
     args = parser.parse_args()

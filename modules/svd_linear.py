@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 
 class SVDLinear(nn.Module):
     def __init__(
@@ -33,6 +33,7 @@ class SVDLinear(nn.Module):
         gradient_aware=False,
         ic_split=1,
         oc_split=1,
+        train_scale=False,
     ):
         if param_ratio>=1:
             return linear
@@ -74,6 +75,9 @@ class SVDLinear(nn.Module):
             input_abs_mean = linear.input_abs_mean
             input_abs_mean += 1e-6  # avoid zero division
             w = w * input_abs_mean.view(1, -1)
+        if train_scale:
+            w = w * F.sigmoid(linear.Si)
+            w = w * F.sigmoid(linear.So)
         ic_indexes=None
         oc_indexes=None
         if reorder and max(ic_split,oc_split)>1:
@@ -87,6 +91,7 @@ class SVDLinear(nn.Module):
                 indexes = indexes.view(-1, max(ic_split,oc_split))
                 oc_indexes=indexes.transpose(0, 1).reshape(-1)
         if ic_split>1:
+            raise NotImplementedError
             if reorder and max(ic_split,oc_split)>1:
                 w=w[:,ic_indexes]
                 if act_aware:
@@ -106,6 +111,7 @@ class SVDLinear(nn.Module):
                 
             split='ic'
         elif oc_split>1:
+            raise NotImplementedError
             if reorder and max(ic_split,oc_split)>1:
                 w=w[oc_indexes]
             w=w.view(oc_split, linear.out_features//oc_split, linear.in_features)
@@ -113,10 +119,7 @@ class SVDLinear(nn.Module):
             Ss=[]
             Vs=[]
             for i in range(oc_split):
-                try:
-                    U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
-                except:
-                    return None
+                U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
                 if act_aware:
                     V=V/input_abs_mean.view(-1,1)
                 Us.append(U)
@@ -124,6 +127,11 @@ class SVDLinear(nn.Module):
                 Vs.append(V)
             split='oc'
         else:
+            # use numpy to solve SVD
+            # U, S, V = np.linalg.svd(w.cpu().numpy(), full_matrices=False)
+            # U = torch.from_numpy(U[:, :rank])
+            # S = torch.from_numpy(S[:rank])
+            # V = torch.from_numpy(V[:rank, :])
             U, S, V = torch.svd_lowrank(w, q=rank)
             # print(S)
             if gradient_aware:
@@ -131,6 +139,9 @@ class SVDLinear(nn.Module):
                 U = U / output_g_mean.view(-1,1)
             if act_aware:
                 V = V / input_abs_mean.view(-1, 1)
+            if train_scale:
+                V = V / F.sigmoid(linear.Si.view(-1, 1))
+                U = U / F.sigmoid(linear.So.view(-1,1))
             Us=[U]
             Ss=[S]
             Vs=[V]
