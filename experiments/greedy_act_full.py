@@ -28,168 +28,56 @@ from tqdm import tqdm
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 import torch.nn.functional as F
 
-def inf_nan_trace(model):
-    def hook(module, input, output):
-        if len(input) and isinstance(input[0], torch.Tensor):
-            if torch.isnan(input[0]).any():
-                breakpoint()
-            if torch.isinf(input[0]).any():
-                breakpoint()
-        if isinstance(output, torch.Tensor):
-            if torch.isnan(output).any():
-                breakpoint()
-            if torch.isinf(output).any():
-                breakpoint()
-
-    for name, module in model.named_modules():
-        module._forward_hooks.clear()
-        module.register_forward_hook(hook)
-
-
-def reorder_mlp(model):
-    full_name_dict = {module: name for name, module in model.named_modules()}
-    if "opt" in args.model_id:
-        mlps = [(_.fc1, _.fc2) for _ in model.model.decoder.layers]
-    elif "llama" in args.model_id:
-        mlps = [
-            (_.mlp.gate_proj, _.mlp.up_proj, _.mlp.down_proj)
-            for _ in model.model.layers
-        ]
-    else:
-        raise NotImplementedError
-    if args.test_split == 1:
-        return
-    for mlp in mlps:
-        act_sensitivity = mlp[-1].input_abs_mean
-        indexes = torch.argsort(act_sensitivity)
-        reorder_indexes = indexes.view(-1, args.test_split).transpose(0, 1).reshape(-1)
-        # reorder output
-        for layer in mlp[:-1]:
-            layer.weight.data = layer.weight.data[reorder_indexes]
-            if layer.bias is not None:
-                layer.bias.data = layer.bias.data[reorder_indexes]
-        # reorder input
-        mlp[-1].weight.data = mlp[-1].weight.data[:, reorder_indexes]
-        mlp[-1].input_abs_mean = mlp[-1].input_abs_mean[reorder_indexes]
-        print(f"reorder for {full_name_dict[mlp[-1]]} done")
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-
-    @property
-    def avg(self):
-        return self.sum / self.count
-
-def train_input_output_scale(model, calib_loader):
-    path=f"output/{args.model_id.replace('/','_')}/all_scales.pt"
-    if args.load_scale and os.path.exists(path):
-        all_scales=torch.load(path)
+def calib_full_input(model, calib_loader):
+    model_id = model.config._name_or_path
+    cache_file = f"cache/{model_id.replace('/','_')}_calib_full_input.pt"
+    if os.path.exists(cache_file):
+        all_full_input = torch.load(cache_file, map_location="cpu")
         for name, module in model.named_modules():
             if isinstance(module, nn.Linear):
-                module.Si=all_scales[name]['Si'].to(module.weight.device)
-                module.So=all_scales[name]['So'].to(module.weight.device)
-                print(f"load scale for {name} done")
+                module.full_input = all_full_input[name].to(
+                    module.weight.device
+                )
         return
-    
-    all_scales={}
-    if "opt" in args.model_id:
-        layers=model.model.decoder.layers
-    else:
-        layers=model.model.layers
-    for layer in layers:
-        name_dict = {name:module for name, module in layer.named_modules()}
-        train_params=[]
-        for name, module in layer.named_modules():
-            if isinstance(module, nn.Linear):
-                new_module=TrainScaleLinear.from_linear(module)
-                father_name_ind=name.rfind(".")
-                if father_name_ind==-1:
-                    father=layer
-                else:
-                    father_name=name[:father_name_ind]
-                    father=name_dict[father_name]
-                setattr(father,name[father_name_ind+1:],new_module)
-                print(f"train scale for {name} done, father {father_name}")
-                train_params.append(new_module.Si)
-                train_params.append(new_module.So)
-                # break
-        # model.train()
-        model.eval()
-        optimizer=torch.optim.Adam(train_params,lr=1e-2)
+    model.eval()
+    # set hook for every Linear layers
 
-        layer_out=[]
-        def layer_inp_hook(m,i,o):
-            # global layer_out
-            layer_out.append(o[0])
-        layer.register_forward_hook(layer_inp_hook)
-        for epoch in range(1):
-            loss_meter=AverageMeter()
-            pbar=tqdm(calib_loader)
-            for batch in pbar:
-                # batch = batch.to(model.device)
-                batch = {k: v.to(model.device) for k, v in batch.items()}
-                for name, module in model.named_modules():
-                    if isinstance(module, TrainScaleLinear):
-                        module.is_scale=False
+    def hook(module, input, output):
+        if module.full_input is None:
+            module.full_input = input[0]
+        else:
+            module.full_input = torch.cat([module.full_input, input[0]], dim=0)
+        # abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
+        # module.input_abs_mean += abs_max
 
-                raw_out=model(**batch).logits.detach()
-                for name, module in model.named_modules():
-                    if isinstance(module, TrainScaleLinear):
-                        module.is_scale=True
-                out=model(**batch).logits
-                # loss=F.kl_div(F.log_softmax(out,dim=-1),F.softmax(raw_out,dim=-1),reduction="batchmean")
-                
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module.full_input=None
+            module.register_forward_hook(hook)
 
-                
-                
-                loss=F.mse_loss(layer_out[1],layer_out[0].detach())
-                layer_out.clear()
-                # breakpoint()
-                loss_meter.update(loss.item(),batch["input_ids"].size(0))
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                pbar.set_description(f"epoch {epoch} loss {loss_meter.avg}")
-        # breakpoint()
-        for name, module in layer.named_modules():
-            if isinstance(module, TrainScaleLinear):
-                ic,oc=module.weight.shape
-                new_module=nn.Linear(ic,oc,bias= module.bias is not None)
-                new_module.weight.data=module.weight.data
-                new_module.bias=module.bias
-                new_module.Si=module.Si
-                new_module.So=module.So
-                all_scales[name]={'Si':module.Si.detach().cpu(),'So':module.So.detach().cpu()}
-                father_name_ind=name.rfind(".")
-                if father_name_ind==-1:
-                    father=layer
-                else:
-                    father_name=name[:father_name_ind]
-                    father=name_dict[father_name]
-                setattr(father,name[father_name_ind+1:],new_module)
-                print(f"train scale for {name} done, father {father_name}")
-    torch.save(all_scales,path)
+    # get activation distribution
+    for i,batch in enumerate(calib_loader):
+        # print(batch)
+        batch = {k: v.to(model.device) for k, v in batch.items()}
+        model(**batch)
+        if i==2:
+            break
 
+    # remove and save input_abs_mean
+    all_full_input = {}
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module._forward_hooks.clear()
+            all_full_input[name] = module.full_input
+            
+    torch.save(all_full_input, cache_file)
 
 def convert_to_svd_linear(model, tokenizer, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
     log_file = open(
-        f"{path}/greedy_train_scale_a{args.act_aware}_r{args.reorder}_s{args.test_split}_co{args.cosearch}.json",
+        f"{path}/greedy_act_full_a{args.act_aware}_r{args.reorder}_s{args.test_split}_co{args.cosearch}.json",
         "a+",
     )
 
@@ -228,13 +116,12 @@ def convert_to_svd_linear(model, tokenizer, args):
                 args.ppl_target_st
                 + (args.ppl_target_ed - args.ppl_target_st) * now_progress
             )
-            msg = f"round {roundi} mlp {full_name_dict[raw_linear]}, ppl_target={ppl_target}\n"
+            full_name = linear_info[raw_linear]["full_name"]
+            msg = f"round {roundi} {full_name}, ppl_target={ppl_target}\n"
             log_file.write(msg)
             print(msg)
-            full_name = linear_info[raw_linear]["full_name"]
             father = linear_info[raw_linear]["father"]
             name = linear_info[raw_linear]["name"]
-            log_file.write(f"individual search {full_name}\n")
             low = 0
             high = 1
 
@@ -254,17 +141,14 @@ def convert_to_svd_linear(model, tokenizer, args):
                 min_split = None
                 min_svd_linear = None
                 for ic_split, oc_split in split_candidates:
-                    try:
-                        svd_linear = SVDLinear.from_linear(
-                            raw_linear,
-                            param_ratio=ratio,
-                            train_scale=True,
-                            # act_aware=args.act_aware,
-                            # oc_split=oc_split,
-                            # ic_split=ic_split,
-                        )
-                    except:
-                        continue
+                    svd_linear = SVDLinear.from_linear(
+                        raw_linear,
+                        param_ratio=ratio,
+                        act_full=True,
+                        # act_aware=args.act_aware,
+                        # oc_split=oc_split,
+                        # ic_split=ic_split,
+                    )
                     setattr(father, name, svd_linear)
                     # inf_nan_trace(model)
                     result = evaluate_model(
@@ -350,7 +234,8 @@ def main(args):
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
     # calib_input_distribution(model, calib_loader)
     # calib_input_output_distribution(model, calib_loader)
-    train_input_output_scale(model, calib_loader)
+    # train_input_output_scale(model, calib_loader)
+    calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
     if args.reorder:
         reorder_mlp(model)

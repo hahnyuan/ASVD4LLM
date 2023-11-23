@@ -34,6 +34,7 @@ class SVDLinear(nn.Module):
         ic_split=1,
         oc_split=1,
         train_scale=False,
+        act_full=False,
     ):
         if param_ratio>=1:
             return linear
@@ -71,6 +72,16 @@ class SVDLinear(nn.Module):
             # input_g_mean=torch.log2(input_g_mean).clamp_(min=1e-6)
             w = w*input_g_mean.view(1,-1)
             w = w*output_g_mean.view(-1,1)
+        if act_full:
+            act_full_mat=linear.full_input.to(w.dtype).view(-1,w.size(1))[:w.size(1)].T
+            act_full_mat=torch.where(act_full_mat.abs()<1e-6, 1e-6, act_full_mat)
+            try:
+                full_input_inv=torch.inverse(act_full_mat.float())
+            except:
+                print(f"act_full_mat cannot be inversed for {linear}, disable act_full")
+                act_full=False
+            if act_full:
+                w= torch.matmul(w,act_full_mat)
         if act_aware:
             input_abs_mean = linear.input_abs_mean
             input_abs_mean += 1e-6  # avoid zero division
@@ -91,7 +102,6 @@ class SVDLinear(nn.Module):
                 indexes = indexes.view(-1, max(ic_split,oc_split))
                 oc_indexes=indexes.transpose(0, 1).reshape(-1)
         if ic_split>1:
-            raise NotImplementedError
             if reorder and max(ic_split,oc_split)>1:
                 w=w[:,ic_indexes]
                 if act_aware:
@@ -105,13 +115,15 @@ class SVDLinear(nn.Module):
                 U, S, V = torch.svd_lowrank(w[:,i,:], q=rank)
                 if act_aware:
                     V=V/input_abs_mean.view(ic_split, linear.in_features//ic_split,1)[i]
+                if train_scale:
+                    V = V / F.sigmoid(linear.Si.view(oc_split,-1, 1)[i])
+                    U = U / F.sigmoid(linear.So.view(-1,1))
                 Us.append(U)
                 Ss.append(S)
                 Vs.append(V)
                 
             split='ic'
         elif oc_split>1:
-            raise NotImplementedError
             if reorder and max(ic_split,oc_split)>1:
                 w=w[oc_indexes]
             w=w.view(oc_split, linear.out_features//oc_split, linear.in_features)
@@ -122,6 +134,10 @@ class SVDLinear(nn.Module):
                 U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
                 if act_aware:
                     V=V/input_abs_mean.view(-1,1)
+                if train_scale:
+                    V = V / F.sigmoid(linear.Si.view(-1, 1))
+                    U = U / F.sigmoid(linear.So.view(oc_split,-1,1)[i])
+                
                 Us.append(U)
                 Ss.append(S)
                 Vs.append(V)
@@ -142,6 +158,8 @@ class SVDLinear(nn.Module):
             if train_scale:
                 V = V / F.sigmoid(linear.Si.view(-1, 1))
                 U = U / F.sigmoid(linear.So.view(-1,1))
+            if act_full:
+                V=torch.matmul(V.T,full_input_inv).T
             Us=[U]
             Ss=[S]
             Vs=[V]
