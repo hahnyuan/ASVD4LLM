@@ -136,8 +136,8 @@ def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
                 param_ratio=ratio,
                 # act_full=True,
                 act_aware=args.act_aware,
-                # oc_split=oc_split,
-                # ic_split=ic_split,
+                oc_split=args.test_split if raw_linear.in_features<raw_linear.out_features else 1,
+                ic_split=args.test_split if raw_linear.in_features>raw_linear.out_features else 1,
             )
             setattr(info["father"], info["name"], svd_linear)
             tot_params+=raw_linear.weight.numel()
@@ -159,42 +159,7 @@ def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
         else:
             low = mid + 1
         print(f"Update: high={high}, low={low}")
-    mid = (low + high) // 2
-    layers_min_ratio={layername:1 for layername, ratio, ppl in sorted_sensitive_list[:mid+1]}
-    for layername, ratio, ppl in sorted_sensitive_list[mid:]:
-        layers_min_ratio[layername]=min(layers_min_ratio[layername], ratio)
-    for layername, ratio in layers_min_ratio.items():
-        # set ratio
-        raw_linear = module_dict[layername]
-        info = linear_info[raw_linear]
-        svd_linear = SVDLinear.from_linear(
-            raw_linear,
-            param_ratio=ratio,
-            # act_full=True,
-            act_aware=args.act_aware,
-            oc_split=args.test_split if raw_linear.in_features<raw_linear.out_features else 1,
-            ic_split=args.test_split if raw_linear.in_features>raw_linear.out_features else 1,
-        )
-        setattr(info["father"], info["name"], svd_linear)
-    result = evaluate_model(
-        model,
-        tokenizer,
-        args.model_id,
-        "",
-        eval_ppl="wikitext2",
-        limit=15,
-    )
-    ppl = result["wikitext2"]
-    print(f"mid={mid}, ppl={ppl}")
-    log_file.write(
-        str(
-            {
-                "mid": mid,
-                "wikitext2": result["wikitext2"],
-            }
-        )
-        + ",\n"
-    )
+    
 
 
 
