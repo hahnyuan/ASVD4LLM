@@ -35,6 +35,7 @@ class SVDLinear(nn.Module):
         oc_split=1,
         train_scale=False,
         act_full=False,
+        alpha=1,
     ):
         if param_ratio>=1:
             return linear
@@ -83,7 +84,7 @@ class SVDLinear(nn.Module):
             if act_full:
                 w= torch.matmul(w,act_full_mat)
         if act_aware:
-            input_abs_mean = linear.input_abs_mean
+            input_abs_mean = linear.input_abs_mean**alpha
             input_abs_mean += 1e-6  # avoid zero division
             w = w * input_abs_mean.view(1, -1)
         if train_scale:
@@ -112,7 +113,11 @@ class SVDLinear(nn.Module):
             Ss=[]
             Vs=[]
             for i in range(ic_split):
-                U, S, V = torch.svd_lowrank(w[:,i,:], q=rank)
+                try:
+                    U, S, V = torch.svd_lowrank(w[:,i,:], q=rank)
+                except:
+                    print(f"svd failed for {linear}, disable act_aware")
+                    return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
                 if act_aware:
                     V=V/input_abs_mean.view(ic_split, linear.in_features//ic_split,1)[i]
                 if train_scale:
@@ -131,7 +136,11 @@ class SVDLinear(nn.Module):
             Ss=[]
             Vs=[]
             for i in range(oc_split):
-                U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
+                try:
+                    U, S, V = torch.svd_lowrank(w[i,:,:], q=rank)
+                except:
+                    print(f"svd failed for {linear}, disable act_aware")
+                    return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
                 if act_aware:
                     V=V/input_abs_mean.view(-1,1)
                 if train_scale:
@@ -148,7 +157,11 @@ class SVDLinear(nn.Module):
             # U = torch.from_numpy(U[:, :rank])
             # S = torch.from_numpy(S[:rank])
             # V = torch.from_numpy(V[:rank, :])
-            U, S, V = torch.svd_lowrank(w, q=rank)
+            try:
+                U, S, V = torch.svd_lowrank(w, q=rank)
+            except:
+                print(f"svd failed for {linear}, disable act_aware")
+                return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
             # print(S)
             if gradient_aware:
                 V = V / input_g_mean.view(-1, 1)
@@ -170,8 +183,20 @@ class SVDLinear(nn.Module):
         else:
             bias = None
 
-        # print shapes
-        # print(f"U: {U.size()}, S: {S.size()}, V: {V.size()}, bias: {bias.size()}")
+        # nan check
+        for S in Ss:
+            if torch.isnan(S).any():
+                print("nan in S")
+                return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
+        for U in Us:
+            if torch.isnan(U).any():
+                print("nan in U")
+                return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
+        for V in Vs:
+            if torch.isnan(V).any():
+                print("nan in V")
+                return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
+
         new_linear=SVDLinear(Us, Ss, Vs, bias,split,ic_indexes,oc_indexes)
         return new_linear.to(linear.weight.dtype)
 
@@ -211,8 +236,5 @@ class SVDLinear(nn.Module):
             
         if self.bias is not None:
             y = y + self.bias
-        # nan check
-        if (y!=y).any():
-            breakpoint()
         return y
 

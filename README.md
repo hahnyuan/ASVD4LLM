@@ -195,3 +195,17 @@ CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="pri
 CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target 6.5 --act_aware
 
 CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity_split.py --model_id="huggyllama/llama-7b" --ppl_target 8 --act_aware
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --test_split 1
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --test_split 4
+
+# sensitivity split alpha
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split_alpha.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split_alpha.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --test_split 2
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split_alpha.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target 6.5 --act_aware --test_split 2
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split_alpha.py --model_id="huggyllama/llama-7b" --ppl_target 8 --act_aware --test_split 2
