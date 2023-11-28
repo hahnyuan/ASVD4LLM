@@ -186,3 +186,8 @@ CUDA_VISIBLE_DEVICES='1' python experiments/greedy_train_scale.py --model_id="me
 CUDA_VISIBLE_DEVICES='0' python experiments/greedy_act_full.py --model_id="facebook/opt-125m" --ppl_target_st 33 --ppl_target_ed 40 --act_aware
 
 CUDA_VISIBLE_DEVICES='1' python experiments/greedy_act_full.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 6.5
+
+# sensitivity split
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="princeton-nlp/Sheared-LLaMA-1.3B" --ppl_target 10 --act_aware

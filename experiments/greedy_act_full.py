@@ -28,6 +28,7 @@ from tqdm import tqdm
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 import torch.nn.functional as F
 
+@torch.no_grad()
 def calib_full_input(model, calib_loader):
     model_id = model.config._name_or_path
     cache_file = f"cache/{model_id.replace('/','_')}_calib_full_input.pt"
@@ -44,9 +45,9 @@ def calib_full_input(model, calib_loader):
 
     def hook(module, input, output):
         if module.full_input is None:
-            module.full_input = input[0]
+            module.full_input = input[0].cpu()
         else:
-            module.full_input = torch.cat([module.full_input, input[0]], dim=0)
+            module.full_input = torch.cat([module.full_input, input[0].cpu()], dim=0)
         # abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
         # module.input_abs_mean += abs_max
 
@@ -237,8 +238,6 @@ def main(args):
     # train_input_output_scale(model, calib_loader)
     calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
-    if args.reorder:
-        reorder_mlp(model)
     convert_to_svd_linear(model, tokenizer, args)
 
 

@@ -73,7 +73,7 @@ class SVDLinear(nn.Module):
             w = w*input_g_mean.view(1,-1)
             w = w*output_g_mean.view(-1,1)
         if act_full:
-            act_full_mat=linear.full_input.to(w.dtype).view(-1,w.size(1))[:w.size(1)].T
+            act_full_mat=linear.full_input.to(w.device).to(w.dtype).view(-1,w.size(1))[:w.size(1)].T
             act_full_mat=torch.where(act_full_mat.abs()<1e-6, 1e-6, act_full_mat)
             try:
                 full_input_inv=torch.inverse(act_full_mat.float())
