@@ -30,10 +30,10 @@ import torch.nn.functional as F
 
 
 @torch.no_grad()
-def calib_sensitivity(model, tokenizer):
+def calib_sensitivity(model, tokenizer,args):
     model_id = model.config._name_or_path
-    cache_file = f"cache/{model_id.replace('/','_')}_sensitivity.pt"
-    if os.path.exists(cache_file):
+    cache_file = f"cache/{model_id.replace('/','_')}_sensitivity_s{args.test_split}.pt"
+    if os.path.exists(cache_file) and not args.disable_cache:
         sensitivity_dict = torch.load(cache_file, map_location="cpu")
         return sensitivity_dict
     model.eval()
@@ -64,8 +64,8 @@ def calib_sensitivity(model, tokenizer):
                 param_ratio=param_ratio,
                 # act_full=True,
                 act_aware=args.act_aware,
-                # oc_split=oc_split,
-                # ic_split=ic_split,
+                oc_split=args.test_split if raw_linear.in_features<raw_linear.out_features else 1,
+                ic_split=args.test_split if raw_linear.in_features>raw_linear.out_features else 1,
             )
             setattr(info["father"], info["name"], svd_linear)
             result = evaluate_model(
@@ -80,7 +80,7 @@ def calib_sensitivity(model, tokenizer):
             sensitivity_dict[info["full_name"]][param_ratio] = ppl
             print(f"{info['full_name']} {param_ratio} {ppl}")
         setattr(info["father"], info["name"], raw_linear)
-        torch.save(sensitivity_dict, cache_file)
+    torch.save(sensitivity_dict, cache_file)
     return sensitivity_dict
 
 
@@ -181,7 +181,7 @@ def main(args):
     cablib_dataset = "wikitext2"
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
     calib_input_distribution(model, calib_loader)
-    sensitivity = calib_sensitivity(model, tokenizer)
+    sensitivity = calib_sensitivity(model, tokenizer,args)
     # calib_input_output_distribution(model, calib_loader)
     # train_input_output_scale(model, calib_loader)
     # calib_full_input(model, calib_loader)
@@ -209,18 +209,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test_split",
         type=int,
-        default=4,
+        default=1,
     )
     parser.add_argument(
-        "--reorder",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--cosearch",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--load_scale",
+        "--disable_cache",
         action="store_true",
     )
     args = parser.parse_args()
