@@ -55,26 +55,26 @@ class SVDLoRALinear(nn.Module):
         print(f"rank: {rank}")
         # rank = int(min(linear.weight.size()) * compression_ratio)
         if act_aware:
-            input_abs_mean = linear.input_abs_mean
-            input_abs_mean += 1e-6  # avoid zero division
+            scaling_diag_matrix = linear.scaling_diag_matrix
+            scaling_diag_matrix += 1e-6  # avoid zero division
             if hasattr(linear, "output_abs_mean"):
                 output_abs_mean = linear.output_abs_mean
                 output_abs_mean += 1e-6  # avoid zero division
-                input_abs_mean = input_abs_mean.sqrt()
+                scaling_diag_matrix = scaling_diag_matrix.sqrt()
                 output_abs_mean = output_abs_mean.sqrt()
                 w = (
                     linear.weight.data
                     * output_abs_mean.view(-1, 1)
-                    * input_abs_mean.view(1, -1)
+                    * scaling_diag_matrix.view(1, -1)
                 )
             else:
-                w = linear.weight.data * input_abs_mean.view(1, -1)
+                w = linear.weight.data * scaling_diag_matrix.view(1, -1)
         else:
             w = linear.weight.data
         U, S, V = torch.svd_lowrank(w, q=rank)
         # print(S)
         if act_aware:
-            V = V / input_abs_mean.view(-1, 1)
+            V = V / scaling_diag_matrix.view(-1, 1)
             if hasattr(linear, "output_abs_mean"):
                 U = U / output_abs_mean.view(-1, 1)
         if lora_method == "reconstruct":

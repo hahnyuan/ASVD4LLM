@@ -29,11 +29,11 @@ def calib_input_distribution(model, calib_loader):
 
     def hook(module, input, output):
         abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
-        module.input_abs_mean += abs_mean
+        module.scaling_diag_matrix += abs_mean
 
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
-            module.input_abs_mean = 0
+            module.scaling_diag_matrix = 0
             module.register_forward_hook(hook)
 
     # get activation distribution

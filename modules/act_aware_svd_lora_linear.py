@@ -8,12 +8,12 @@ class ActAwareSVDLoRALinear(SVDLoRALinear):
     def from_linear(
         linear: nn.Linear, r_ratio: float, train_ratio: float = 0.5, lora_method="Uonly"
     ):
-        input_abs_mean = linear.input_abs_mean
-        input_abs_mean += 1e-6  # avoid zero division
+        scaling_diag_matrix = linear.scaling_diag_matrix
+        scaling_diag_matrix += 1e-6  # avoid zero division
         rank = int(min(linear.weight.size()) * r_ratio)
-        U, S, V = torch.svd_lowrank(linear.weight.data * input_abs_mean, q=rank)
+        U, S, V = torch.svd_lowrank(linear.weight.data * scaling_diag_matrix, q=rank)
 
-        V = V / input_abs_mean.view(-1, 1)
+        V = V / scaling_diag_matrix.view(-1, 1)
 
         if linear.bias is not None:
             bias = linear.bias.data

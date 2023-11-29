@@ -8,7 +8,7 @@ import torch.nn.functional as F
 def test_SVDLoRALinear():
     x = torch.randn(10, 128)
     linear = nn.Linear(128, 64)
-    linear.input_abs_mean = torch.mean(torch.abs(x), dim=0)
+    linear.scaling_diag_matrix = torch.mean(torch.abs(x), dim=0)
     
     # print(linear.weight.size())
     for r_ratio in torch.linspace(0.1, 1, 10):

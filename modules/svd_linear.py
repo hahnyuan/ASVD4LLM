@@ -84,9 +84,9 @@ class SVDLinear(nn.Module):
             if act_full:
                 w= torch.matmul(w,act_full_mat)
         if act_aware:
-            input_abs_mean = linear.input_abs_mean**alpha
-            input_abs_mean += 1e-6  # avoid zero division
-            w = w * input_abs_mean.view(1, -1)
+            scaling_diag_matrix = linear.scaling_diag_matrix**alpha
+            scaling_diag_matrix += 1e-6  # avoid zero division
+            w = w * scaling_diag_matrix.view(1, -1)
         if train_scale:
             w = w * F.sigmoid(linear.Si)
             w = w * F.sigmoid(linear.So)
@@ -95,7 +95,7 @@ class SVDLinear(nn.Module):
         if reorder and max(ic_split,oc_split)>1:
             # deprecated
             if ic_split>1:
-                indexes = torch.argsort(linear.input_abs_mean)
+                indexes = torch.argsort(linear.scaling_diag_matrix)
                 indexes = indexes.view(-1, max(ic_split,oc_split))
                 ic_indexes=indexes.transpose(0, 1).reshape(-1)
             if oc_split>1:
@@ -106,7 +106,7 @@ class SVDLinear(nn.Module):
             if reorder and max(ic_split,oc_split)>1:
                 w=w[:,ic_indexes]
                 if act_aware:
-                    input_abs_mean=input_abs_mean[ic_indexes]
+                    scaling_diag_matrix=scaling_diag_matrix[ic_indexes]
             w=w.view(linear.out_features, ic_split, linear.in_features//ic_split)
             
             Us=[]
@@ -119,7 +119,7 @@ class SVDLinear(nn.Module):
                     print(f"svd failed for {linear}, disable act_aware")
                     return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
                 if act_aware:
-                    V=V/input_abs_mean.view(ic_split, linear.in_features//ic_split,1)[i]
+                    V=V/scaling_diag_matrix.view(ic_split, linear.in_features//ic_split,1)[i]
                 if train_scale:
                     V = V / F.sigmoid(linear.Si.view(oc_split,-1, 1)[i])
                     U = U / F.sigmoid(linear.So.view(-1,1))
@@ -142,7 +142,7 @@ class SVDLinear(nn.Module):
                     print(f"svd failed for {linear}, disable act_aware")
                     return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
                 if act_aware:
-                    V=V/input_abs_mean.view(-1,1)
+                    V=V/scaling_diag_matrix.view(-1,1)
                 if train_scale:
                     V = V / F.sigmoid(linear.Si.view(-1, 1))
                     U = U / F.sigmoid(linear.So.view(oc_split,-1,1)[i])
@@ -167,7 +167,7 @@ class SVDLinear(nn.Module):
                 V = V / input_g_mean.view(-1, 1)
                 U = U / output_g_mean.view(-1,1)
             if act_aware:
-                V = V / input_abs_mean.view(-1, 1)
+                V = V / scaling_diag_matrix.view(-1, 1)
             if train_scale:
                 V = V / F.sigmoid(linear.Si.view(-1, 1))
                 U = U / F.sigmoid(linear.So.view(-1,1))

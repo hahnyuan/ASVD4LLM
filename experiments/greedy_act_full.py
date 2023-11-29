@@ -49,7 +49,7 @@ def calib_full_input(model, calib_loader):
         else:
             module.full_input = torch.cat([module.full_input, input[0].cpu()], dim=0)
         # abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
-        # module.input_abs_mean += abs_max
+        # module.scaling_diag_matrix += abs_max
 
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
@@ -64,7 +64,7 @@ def calib_full_input(model, calib_loader):
         if i==2:
             break
 
-    # remove and save input_abs_mean
+    # remove and save scaling_diag_matrix
     all_full_input = {}
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):

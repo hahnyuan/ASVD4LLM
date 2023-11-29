@@ -5,14 +5,14 @@ from tqdm import tqdm
 
 
 @torch.no_grad()
-def calib_input_distribution(model, calib_loader):
+def calib_input_distribution(model, calib_loader,method):
     model_id = model.config._name_or_path
-    cache_file = f"cache/{model_id.replace('/','_')}_calib_input_distribution.pt"
+    cache_file = f"cache/{model_id.replace('/','_')}_calib_input_distribution_{method}.pt"
     if os.path.exists(cache_file):
-        all_input_abs_mean = torch.load(cache_file, map_location="cpu")
+        all_scaling_diag_matrix = torch.load(cache_file, map_location="cpu")
         for name, module in model.named_modules():
             if isinstance(module, nn.Linear):
-                module.input_abs_mean = all_input_abs_mean[name].to(
+                module.scaling_diag_matrix = all_scaling_diag_matrix[name].to(
                     module.weight.device
                 )
         return
@@ -20,14 +20,18 @@ def calib_input_distribution(model, calib_loader):
     # set hook for every Linear layers
 
     def hook(module, input, output):
-        abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
-        module.input_abs_mean += abs_mean
+        if method=="abs_mean":
+            abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
+            module.scaling_diag_matrix += abs_mean
+        elif method=="abs_max":
+            abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
+            module.scaling_diag_matrix = torch.where(abs_max>module.scaling_diag_matrix,abs_max,module.scaling_diag_matrix)
         # abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
-        # module.input_abs_mean += abs_max
+        # module.scaling_diag_matrix += abs_max
 
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
-            module.input_abs_mean = 0
+            module.scaling_diag_matrix = 0
             module.register_forward_hook(hook)
 
     # get activation distribution
@@ -36,13 +40,13 @@ def calib_input_distribution(model, calib_loader):
         batch = {k: v.to(model.device) for k, v in batch.items()}
         model(**batch)
 
-    # remove and save input_abs_mean
-    all_input_abs_mean = {}
+    # remove and save scaling_diag_matrix
+    all_scaling_diag_matrix = {}
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
             module._forward_hooks.clear()
-            all_input_abs_mean[name] = module.input_abs_mean
-    torch.save(all_input_abs_mean, cache_file)
+            all_scaling_diag_matrix[name] = module.scaling_diag_matrix
+    torch.save(all_scaling_diag_matrix, cache_file)
 
 
 @torch.no_grad()
@@ -53,7 +57,7 @@ def calib_input_output_distribution(model, calib_loader):
         f"cache/{model_id.replace('/','_')}_calib_output_distribution2.pt"
     )
     if os.path.exists(input_cache_file) and os.path.exists(output_cache_file):
-        all_input_abs_mean, all_input_std, all_input_mean = torch.load(
+        all_scaling_diag_matrix, all_input_std, all_input_mean = torch.load(
             input_cache_file, map_location="cpu"
         )
 
@@ -62,7 +66,7 @@ def calib_input_output_distribution(model, calib_loader):
         )
         for name, module in model.named_modules():
             if isinstance(module, nn.Linear):
-                module.input_abs_mean = all_input_abs_mean[name].to(
+                module.scaling_diag_matrix = all_scaling_diag_matrix[name].to(
                     module.weight.device
                 )
                 module.input_std = all_input_std[name].to(module.weight.device)
@@ -110,8 +114,8 @@ def calib_input_output_distribution(model, calib_loader):
         batch = {k: v.to(model.device) for k, v in batch.items()}
         model(**batch)
 
-    # remove and save input_abs_mean
-    all_input_abs_mean = {}
+    # remove and save scaling_diag_matrix
+    all_scaling_diag_matrix = {}
     all_input_std = {}
     all_input_mean = {}
     all_output_abs_mean = {}
@@ -120,7 +124,7 @@ def calib_input_output_distribution(model, calib_loader):
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
             module._forward_hooks.clear()
-            module.input_abs_mean = module.input_abs_sum / module.cnt
+            module.scaling_diag_matrix = module.input_abs_sum / module.cnt
             module.input_mean = module.input_sum / module.cnt
             module.input_std = torch.sqrt(
                 module.input_pow2_sum / module.cnt - module.input_mean.pow(2)
@@ -130,14 +134,14 @@ def calib_input_output_distribution(model, calib_loader):
             module.output_std = torch.sqrt(
                 module.output_pow2_sum / module.cnt - module.output_mean.pow(2)
             )
-            all_input_abs_mean[name] = module.input_abs_mean
+            all_scaling_diag_matrix[name] = module.scaling_diag_matrix
             all_input_std[name] = module.input_std
             all_input_mean[name] = module.input_mean
             all_output_abs_mean[name] = module.output_abs_mean
             all_output_std[name] = module.output_std
             all_output_mean[name] = module.output_mean
 
-    torch.save((all_input_abs_mean, all_input_std, all_input_mean), input_cache_file)
+    torch.save((all_scaling_diag_matrix, all_input_std, all_input_mean), input_cache_file)
     torch.save(
         (all_output_abs_mean, all_output_std, all_output_mean), output_cache_file
     )

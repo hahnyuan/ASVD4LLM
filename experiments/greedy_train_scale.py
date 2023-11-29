@@ -60,7 +60,7 @@ def reorder_mlp(model):
     if args.test_split == 1:
         return
     for mlp in mlps:
-        act_sensitivity = mlp[-1].input_abs_mean
+        act_sensitivity = mlp[-1].scaling_diag_matrix
         indexes = torch.argsort(act_sensitivity)
         reorder_indexes = indexes.view(-1, args.test_split).transpose(0, 1).reshape(-1)
         # reorder output
@@ -70,7 +70,7 @@ def reorder_mlp(model):
                 layer.bias.data = layer.bias.data[reorder_indexes]
         # reorder input
         mlp[-1].weight.data = mlp[-1].weight.data[:, reorder_indexes]
-        mlp[-1].input_abs_mean = mlp[-1].input_abs_mean[reorder_indexes]
+        mlp[-1].scaling_diag_matrix = mlp[-1].scaling_diag_matrix[reorder_indexes]
         print(f"reorder for {full_name_dict[mlp[-1]]} done")
 
 class AverageMeter(object):

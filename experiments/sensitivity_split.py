@@ -32,7 +32,7 @@ import torch.nn.functional as F
 @torch.no_grad()
 def calib_sensitivity(model, tokenizer,args):
     model_id = model.config._name_or_path
-    cache_file = f"cache/{model_id.replace('/','_')}_sensitivity_s{args.test_split}.pt"
+    cache_file = f"cache/{model_id.replace('/','_')}_sensitivity_s{args.test_split}_{args.scaling_method}_{args.alpha}.pt"
     if os.path.exists(cache_file) and not args.disable_cache:
         sensitivity_dict = torch.load(cache_file, map_location="cpu")
         return sensitivity_dict
@@ -62,7 +62,7 @@ def calib_sensitivity(model, tokenizer,args):
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
                 param_ratio=param_ratio,
-                # act_full=True,
+                alpha=args.alpha,
                 act_aware=args.act_aware,
                 oc_split=args.test_split if raw_linear.in_features<raw_linear.out_features else 1,
                 ic_split=args.test_split if raw_linear.in_features>raw_linear.out_features else 1,
@@ -89,7 +89,7 @@ def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
     if not os.path.exists(path):
         os.makedirs(path)
     log_file = open(
-        f"{path}/ssearch_a{args.act_aware}_s{args.test_split}.json",
+        f"{path}/ssearch_a{args.act_aware}_s{args.test_split}_{args.scaling_method}_{args.alpha}.json",
         "a+",
     )
 
@@ -134,7 +134,7 @@ def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
                 param_ratio=ratio,
-                # act_full=True,
+                alpha=args.alpha,
                 act_aware=args.act_aware,
                 oc_split=args.test_split if raw_linear.in_features<raw_linear.out_features else 1,
                 ic_split=args.test_split if raw_linear.in_features>raw_linear.out_features else 1,
@@ -180,7 +180,7 @@ def main(args):
 
     cablib_dataset = "wikitext2"
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-    calib_input_distribution(model, calib_loader)
+    calib_input_distribution(model, calib_loader, args.scaling_method)
     sensitivity = calib_sensitivity(model, tokenizer,args)
     # calib_input_output_distribution(model, calib_loader)
     # train_input_output_scale(model, calib_loader)
@@ -210,6 +210,17 @@ if __name__ == "__main__":
         "--test_split",
         type=int,
         default=1,
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=1,
+    )
+    parser.add_argument(
+        "--scaling_method",
+        type=str,
+        default="abs_mean",
+        choices=["abs_mean", "abs_max"],
     )
     parser.add_argument(
         "--disable_cache",
