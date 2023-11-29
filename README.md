@@ -187,6 +187,18 @@ CUDA_VISIBLE_DEVICES='0' python experiments/greedy_act_full.py --model_id="faceb
 
 CUDA_VISIBLE_DEVICES='1' python experiments/greedy_act_full.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target_st 5.42 --ppl_target_ed 6.5
 
+# sensitivity split alpha
+
+没什么用
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split_alpha.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split_alpha.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --test_split 2
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split_alpha.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target 6.5 --act_aware --test_split 2
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split_alpha.py --model_id="huggyllama/llama-7b" --ppl_target 8 --act_aware --test_split 2
+
 # sensitivity split
 CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware
 
@@ -200,12 +212,3 @@ CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="fac
 
 CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --test_split 4
 
-# sensitivity split alpha
-
-CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split_alpha.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware
-
-CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split_alpha.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --test_split 2
-
-CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split_alpha.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target 6.5 --act_aware --test_split 2
-
-CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split_alpha.py --model_id="huggyllama/llama-7b" --ppl_target 8 --act_aware --test_split 2
