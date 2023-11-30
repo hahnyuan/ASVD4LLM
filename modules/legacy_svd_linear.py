@@ -3,20 +3,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-class SVDLinear(nn.Module):
+class LegacySVDLinear(nn.Module):
     def __init__(
-        self, U,S,V, bias=None
+        self, Us, Ss, Vs, bias=None, split="no", ic_indexes=None, oc_indexes=None
     ) -> None:
         super().__init__()
-        self.ALinear=nn.Linear(U.size(1), U.size(0), bias=False)
-        self.ALinear.weight.data=U.mul(S.sqrt())
-        self.BLinear=nn.Linear(V.size(1), V.size(0), bias=False)
-        self.BLinear.weight.data=V.t().mul(S.sqrt().view(-1,1))
+        for U,S,V in zip(Us, Ss, Vs):
+            U.mul_(S.sqrt())
+            V.mul_(S.sqrt())
+        self.Us=nn.ParameterList(Us)
+        self.Ss=Ss
+        self.Vs=nn.ParameterList(Vs)
+        
         if bias is not None:
             self.bias = bias
         else:
             self.bias = None
-
+        self.split=split
+        self.ic_indexes=ic_indexes
+        self.oc_indexes=oc_indexes
+        self.oc_reorg_indexes=torch.argsort(oc_indexes) if oc_indexes is not None else None
 
     @staticmethod
     def from_linear(
@@ -191,14 +197,42 @@ class SVDLinear(nn.Module):
                 print("nan in V")
                 return nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
 
-        assert len(Us)==len(Ss)==len(Vs)==1
-        new_linear=SVDLinear(Us[0], Ss[0], Vs[0], bias)
+        new_linear=SVDLinear(Us, Ss, Vs, bias,split,ic_indexes,oc_indexes)
         return new_linear.to(linear.weight.dtype)
 
     def forward(self, inp):
         # compute USV^Tx + b
-        y = self.BLinear(inp)
-        y = self.ALinear(y)
+        if self.ic_indexes is not None:
+            inp=torch.index_select(inp, dim=-1, index=self.ic_indexes)
+        if self.split in ['no','oc']:
+            y=[]
+            for U,S,V in zip(self.Us, self.Ss, self.Vs):
+                x = F.linear(inp, V.t(), bias=None)
+                # x = x * S
+                x = F.linear(x, U, bias=None)
+                y.append(x)
+                
+            y=torch.concat(y, dim=-1)
+        else:
+            y=0
+            if inp.dim()==2:
+                inp=inp.view(inp.size(0),len(self.Us),-1)
+                for i,(U,S,V) in enumerate(zip(self.Us, self.Ss, self.Vs)):
+                    x = F.linear(inp[:,i,:], V.t(), bias=None)
+                    # x = x * S
+                    x = F.linear(x, U, bias=None)
+                    y+=x
+            elif inp.dim()==3:
+                inp=inp.view(inp.size(0),inp.size(1),len(self.Us),-1)
+                for i,(U,S,V) in enumerate(zip(self.Us, self.Ss, self.Vs)):
+                    x = F.linear(inp[:,:,i,:], V.t(), bias=None)
+                    # x = x * S
+                    x = F.linear(x, U, bias=None)
+                    y+=x
+            else:
+                raise NotImplementedError
+        if self.oc_reorg_indexes is not None:
+            y=torch.index_select(y, dim=-1, index=self.oc_reorg_indexes)
             
         if self.bias is not None:
             y = y + self.bias
