@@ -38,7 +38,7 @@ def calib_sensitivity(model, tokenizer, args):
                 raw_linear,
                 param_ratio=param_ratio,
                 alpha=args.alpha,
-                act_aware=args.act_aware,
+                act_aware=True,
                 oc_split=args.test_split
                 if raw_linear.in_features < raw_linear.out_features
                 else 1,

@@ -33,7 +33,7 @@ def run_naive_svd(model, tokenizer,  args, log_file):
                 modules.append(raw_linear)
 
     # binary search
-    for target_params_ratio in [0.95, 0.9]:
+    for target_params_ratio in [0.95]:
         for raw_linear, info in linear_info.items():
             # set ratio
             svd_linear = SVDLinear.from_linear(
@@ -53,7 +53,7 @@ def run_naive_svd(model, tokenizer,  args, log_file):
             model,
             tokenizer,
             args.model_id,
-            "",
+            "mmlu",
             eval_ppl="wikitext2,ptb",
             limit=-1,
         )
@@ -128,11 +128,11 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file):
                 model,
                 tokenizer,
                 args.model_id,
-                "",
+                "mmlu",
                 eval_ppl="wikitext2,ptb",
                 limit=-1,
             )
-            msg=f"act-aware{act_aware} target_params_ratio={target_params_ratio}\n"
+            msg=f"\nact-aware{act_aware} target_params_ratio={target_params_ratio}\n"
             print(msg)
             print(result)
             log_file.write(msg)
@@ -154,21 +154,21 @@ def main(args):
 
     model = model.to_bettertransformer()
 
-    # result = evaluate_model(
-    #     model,
-    #     tokenizer,
-    #     args.model_id,
-    #     "",
-    #     eval_ppl="wikitext2,ptb",
-    #     limit=-1,
-    # )
-    # print(result)
+    result = evaluate_model(
+        model,
+        tokenizer,
+        args.model_id,
+        "mmlu",
+        eval_ppl="wikitext2,ptb",
+        limit=-1,
+    )
+    print(result)
     save_path = f"output/final/"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     log_file = open(f"{save_path}/{args.model_id.replace('/','_')}.json", "a+")
-    log_file.write("original\n")
-    # log_file.write(str(result))
+    log_file.write("\noriginal\n")
+    log_file.write(str(result))
     log_file.flush()
 
     cablib_dataset = "wikitext2"
@@ -179,7 +179,7 @@ def main(args):
     # train_input_output_scale(model, calib_loader)
     # calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
-    # run_naive_svd(model, tokenizer, args, log_file)
+    run_naive_svd(model, tokenizer, args, log_file)
     run_eval(model, tokenizer, sensitivity, args, log_file)
 
 

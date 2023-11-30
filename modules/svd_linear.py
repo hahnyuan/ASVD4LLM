@@ -13,7 +13,7 @@ class SVDLinear(nn.Module):
         self.BLinear=nn.Linear(V.size(1), V.size(0), bias=False)
         self.BLinear.weight.data=V.t().mul(S.sqrt().view(-1,1))
         if bias is not None:
-            self.bias = bias
+            self.bias = nn.Parameter(bias)
         else:
             self.bias = None
 

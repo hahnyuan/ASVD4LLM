@@ -269,3 +269,8 @@ CUDA_VISIBLE_DEVICES='0' python experiments/ppl_line.py --model_id="huggyllama/l
 
 # run main result
 CUDA_VISIBLE_DEVICES='2' python experiments/run_main_result.py --model_id="huggyllama/llama-7b" --test_split 1 --alpha 0.5 --n_calib_samples 32
+
+# quantization asvd
+CUDA_VISIBLE_DEVICES='0' python experiments/quantization_asvd.py --model_id="facebook/opt-125m"  --test_split 1 --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='0' python experiments/quantization_asvd.py --model_id="huggyllama/llama-7b" --test_split 1 --alpha 0.5 --n_calib_samples 32

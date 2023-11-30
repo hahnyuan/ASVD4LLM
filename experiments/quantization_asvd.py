@@ -2,7 +2,7 @@ import argparse
 import os
 import torch
 import torch.nn as nn
-
+import copy
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -27,19 +27,35 @@ def find_layers(module, layers=[nn.Conv2d, nn.Linear], name=''):
     return res
 
 @torch.no_grad()
-def opt_sequential(model, dataloader, dev):
+def quant_sequential(model, dataloader, dev):
     print('Starting ...')
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = model.model.decoder.layers
 
-    model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev) 
-    model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
-    if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-        model.model.decoder.project_out = model.model.decoder.project_out.to(dev) 
-    if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-        model.model.decoder.project_in = model.model.decoder.project_in.to(dev) 
+    if "opt" in args.model_id:
+        name_prefix = "model.decoder.layers."
+        layers = model.model.decoder.layers
+        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
+        model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(
+            dev
+        )
+        if (
+            hasattr(model.model.decoder, "project_out")
+            and model.model.decoder.project_out
+        ):
+            model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
+        if (
+            hasattr(model.model.decoder, "project_in")
+            and model.model.decoder.project_in
+        ):
+            model.model.decoder.project_in = model.model.decoder.project_in.to(dev)
+    elif "llama" in args.model_id:
+        name_prefix = "model.layers."
+        layers = model.model.layers
+        model.model.embed_tokens = model.model.embed_tokens.to(dev)
+        model.model.norm = model.model.norm.to(dev)
     layers[0] = layers[0].to(dev)
 
     dtype = next(iter(model.parameters())).dtype
@@ -59,6 +75,7 @@ def opt_sequential(model, dataloader, dev):
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
+        batch=batch['input_ids']
         try:
             model(batch[0].to(dev))
         except ValueError:
@@ -89,7 +106,7 @@ def opt_sequential(model, dataloader, dev):
             gptq[name] = GPTQ(subset[name])
             gptq[name].quantizer = Quantizer()
             gptq[name].quantizer.configure(
-                args.wbits, perchannel=True, sym=args.sym, mse=False, trits=args.trits
+                args.wbits, perchannel=True, sym=False, mse=False
             )
 
         def add_batch(name):
@@ -108,7 +125,7 @@ def opt_sequential(model, dataloader, dev):
             print(i, name)
             print('Quantizing ...')
             gptq[name].fasterquant(
-                percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
+                percdamp=0.01, groupsize=args.groupsize, actorder=True, static_groups=False
             )
             quantizers['model.decoder.layers.%d.%s' % (i, name)] = gptq[name].quantizer
             gptq[name].free()
@@ -126,7 +143,7 @@ def opt_sequential(model, dataloader, dev):
     
     return quantizers
 
-def run_eval(model, tokenizer, sensitivity_dict, args, log_file, act_aware=False):
+def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
     module_dict = {name: module for name, module in model.named_modules()}
     full_name_dict = {module: name for name, module in model.named_modules()}
     linear_info = {}
@@ -151,6 +168,7 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, act_aware=False
     sorted_sensitive_list = sorted(sensitivity_list, key=lambda x: -x[2])
 
     # binary search
+    act_aware=True
     for target_params_ratio in [0.95, 0.9, 0.85, 0.8, 0.75]:
         high = len(sorted_sensitive_list) - 1
         low = 0
@@ -170,7 +188,7 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, act_aware=False
             if param_ratio > target_params_ratio:
                 high = mid
             else:
-                param_ratio = mid + 1
+                low = mid + 1
         for layername, ratio in layers_min_ratio.items():
             # set ratio
             raw_linear = module_dict[layername]
@@ -188,8 +206,12 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, act_aware=False
                 else 1,
             )
             setattr(info["father"], info["name"], svd_linear)
+        device="cuda:0"
+        qmodel=copy.deepcopy(model)
+        quant_sequential(qmodel, gptq_loader, device)
+        qmodel=qmodel.to(device)
         result = evaluate_model(
-            model,
+            qmodel,
             tokenizer,
             args.model_id,
             "",
@@ -213,37 +235,26 @@ def main(args):
     tokenizer.padding_side = "right"  # Fix for fp16
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="auto", torch_dtype=torch.float16
+        model_id, device_map="cpu", torch_dtype=torch.float16
     )
 
     model = model.to_bettertransformer()
 
-    result = evaluate_model(
-        model,
-        tokenizer,
-        args.model_id,
-        "",
-        eval_ppl="wikitext2,ptb",
-        limit=-1,
-    )
-    print(result)
     save_path = f"output/final/"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    log_file = open(f"{save_path}/{args.model_id.replace('/','_')}.json", "a+")
-    log_file.write("original\n")
-    log_file.write(str(result))
-    log_file.flush()
+    log_file = open(f"{save_path}/{args.model_id.replace('/','_')}_quant.json", "a+")
 
     cablib_dataset = "wikitext2"
-    calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
+    calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, args.nsamples)
     calib_input_distribution(model, calib_loader, args.scaling_method)
     sensitivity = calib_sensitivity(model, tokenizer, args)
     # calib_input_output_distribution(model, calib_loader)
     # train_input_output_scale(model, calib_loader)
     # calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
-    run_eval(model, tokenizer, sensitivity, args, log_file, act_aware=True)
+    model.seqlen=2048
+    run_eval(model, tokenizer, sensitivity, args, log_file, calib_loader)
 
 
 if __name__ == "__main__":
@@ -284,6 +295,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--disable_cache",
         action="store_true",
+    )
+    parser.add_argument(
+        '--nsamples', type=int, default=256,
+        help='Number of calibration data samples.'
+    )
+    parser.add_argument(
+        '--wbits', type=int, default=8,
+    )
+    parser.add_argument(
+        '--groupsize', type=int, default=128,
     )
     args = parser.parse_args()
 
