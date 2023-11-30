@@ -134,7 +134,7 @@ def get_eval_loaders(name, tokenizer):
         testenc = tokenizer("\n\n".join(valdata["sentence"]), return_tensors="pt")
         return testenc
     if "c4" in name:
-        valdata = load_dataset(
+        testdata = load_dataset(
             "allenai/c4",
             "allenai--c4",
             data_files={"validation": "en/c4-validation.00000-of-00008.json.gz"},

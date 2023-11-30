@@ -224,3 +224,38 @@ CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="fac
 CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_mean" --alpha 0.1
 
 CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_max" --alpha 0.1
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_mean" --alpha 2
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_max" --alpha 2
+
+CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_mean" --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_max" --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_mean" --alpha 0
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_max" --alpha 0
+
+CUDA_VISIBLE_DEVICES='2' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_mean" --alpha 0.25
+
+CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity_split.py --model_id="facebook/opt-125m" --ppl_target 40 --act_aware --scaling_method "abs_max" --alpha 0.25
+
+# main experiment
+
+<!-- llama -->
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="huggyllama/llama-7b" --ppl_target 8 --act_aware --test_split 1 --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='1' python experiments/sensitivity_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target 6.5 --act_aware --test_split 1 --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='3' python experiments/sensitivity_split.py --model_id="meta-llama/Llama-2-7b-hf" --ppl_target 6.5 --act_aware --test_split 1 --alpha 0.5 --n_calib_samples 32
+
+CUDA_VISIBLE_DEVICES='0' python experiments/sensitivity_split.py --model_id="huggyllama/llama-7b" --ppl_target 8 --act_aware --test_split 1 --alpha 0.5 --n_calib_samples 32
+
+
+# plot ppl
+CUDA_VISIBLE_DEVICES='0' python experiments/ppl_line.py --model_id="facebook/opt-125m" --act_aware --test_split 1 --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='1' python experiments/ppl_line.py --model_id="huggyllama/llama-7b" --act_aware --test_split 1 --alpha 0.5
+
+CUDA_VISIBLE_DEVICES='2' python experiments/ppl_line.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --test_split 1 --alpha 0.5
