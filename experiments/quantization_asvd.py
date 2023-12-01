@@ -14,134 +14,9 @@ from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 from sensitivity import calib_sensitivity
-from quantization import Quantizer, GPTQ
+from quantization import gptq_quant_sequential,rtn_quant_sequential
 
-def find_layers(module, layers=[nn.Conv2d, nn.Linear], name=''):
-    if type(module) in layers:
-        return {name: module}
-    res = {}
-    for name1, child in module.named_children():
-        res.update(find_layers(
-            child, layers=layers, name=name + '.' + name1 if name != '' else name1
-        ))
-    return res
 
-@torch.no_grad()
-def quant_sequential(model, dataloader, dev):
-    print('Starting ...')
-
-    use_cache = model.config.use_cache
-    model.config.use_cache = False
-    layers = model.model.decoder.layers
-
-    if "opt" in args.model_id:
-        name_prefix = "model.decoder.layers."
-        layers = model.model.decoder.layers
-        model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
-        model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(
-            dev
-        )
-        if (
-            hasattr(model.model.decoder, "project_out")
-            and model.model.decoder.project_out
-        ):
-            model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
-        if (
-            hasattr(model.model.decoder, "project_in")
-            and model.model.decoder.project_in
-        ):
-            model.model.decoder.project_in = model.model.decoder.project_in.to(dev)
-    elif "llama" in args.model_id:
-        name_prefix = "model.layers."
-        layers = model.model.layers
-        model.model.embed_tokens = model.model.embed_tokens.to(dev)
-        model.model.norm = model.model.norm.to(dev)
-    layers[0] = layers[0].to(dev)
-
-    dtype = next(iter(model.parameters())).dtype
-    inps = torch.zeros(
-        (args.nsamples, model.seqlen, model.config.hidden_size), dtype=dtype, device=dev
-    )
-    cache = {'i': 0, 'attention_mask': None}
-
-    class Catcher(nn.Module):
-        def __init__(self, module):
-            super().__init__()
-            self.module = module
-        def forward(self, inp, **kwargs):
-            inps[cache['i']] = inp
-            cache['i'] += 1
-            cache['attention_mask'] = kwargs['attention_mask']
-            raise ValueError
-    layers[0] = Catcher(layers[0])
-    for batch in dataloader:
-        batch=batch['input_ids']
-        try:
-            model(batch[0].to(dev))
-        except ValueError:
-            pass
-    layers[0] = layers[0].module
-
-    layers[0] = layers[0].cpu()
-    model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.cpu()
-    model.model.decoder.embed_positions = model.model.decoder.embed_positions.cpu()
-    if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-        model.model.decoder.project_out = model.model.decoder.project_out.cpu()
-    if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-        model.model.decoder.project_in = model.model.decoder.project_in.cpu()
-    torch.cuda.empty_cache()
-
-    outs = torch.zeros_like(inps)
-    attention_mask = cache['attention_mask']
-
-    print('Ready.')
-
-    quantizers = {}
-    for i in range(len(layers)):
-        layer = layers[i].to(dev)
-
-        subset = find_layers(layer)
-        gptq = {}
-        for name in subset:
-            gptq[name] = GPTQ(subset[name])
-            gptq[name].quantizer = Quantizer()
-            gptq[name].quantizer.configure(
-                args.wbits, perchannel=True, sym=False, mse=False
-            )
-
-        def add_batch(name):
-            def tmp(_, inp, out):
-                gptq[name].add_batch(inp[0].data, out.data)
-            return tmp
-        handles = []
-        for name in subset:
-            handles.append(subset[name].register_forward_hook(add_batch(name)))
-        for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
-        for h in handles:
-            h.remove()
-
-        for name in subset:
-            print(i, name)
-            print('Quantizing ...')
-            gptq[name].fasterquant(
-                percdamp=0.01, groupsize=args.groupsize, actorder=True, static_groups=False
-            )
-            quantizers['model.decoder.layers.%d.%s' % (i, name)] = gptq[name].quantizer
-            gptq[name].free()
-        for j in range(args.nsamples):
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask)[0]
-
-        layers[i] = layer.cpu()
-        del layer
-        del gptq 
-        torch.cuda.empty_cache()
-
-        inps, outs = outs, inps
-
-    model.config.use_cache = use_cache
-    
-    return quantizers
 
 def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
     module_dict = {name: module for name, module in model.named_modules()}
@@ -208,7 +83,10 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
             setattr(info["father"], info["name"], svd_linear)
         device="cuda:0"
         qmodel=copy.deepcopy(model)
-        quant_sequential(qmodel, gptq_loader, device)
+        if args.quant_method=='rtn':
+            rtn_quant_sequential(qmodel, gptq_loader, device, args)
+        elif args.quant_method=='gptq':
+            gptq_quant_sequential(qmodel, gptq_loader, device, args)
         qmodel=qmodel.to(device)
         result = evaluate_model(
             qmodel,
@@ -218,7 +96,7 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
             eval_ppl="wikitext2,ptb",
             limit=-1,
         )
-        msg=f"act-aware{act_aware} target_params_ratio={target_params_ratio}\n"
+        msg=f"{args.quant_method} {args.wbits}bit act-aware={act_aware} target_params_ratio={target_params_ratio}\n"
         print(msg)
         print(result)
         log_file.write(msg)
@@ -305,6 +183,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--groupsize', type=int, default=128,
+    )
+    parser.add_argument(
+        '--quant_method', type=str, default='rtn', choices=['rtn', 'gptq']
     )
     args = parser.parse_args()
 

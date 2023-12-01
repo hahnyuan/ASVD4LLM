@@ -60,6 +60,11 @@ def run_naive_svd(model, tokenizer,  args, log_file):
         log_file.write(f"naive svd target_params_ratio={target_params_ratio}\n")
         log_file.write(str(result))
         log_file.flush()
+    
+    # convert back to linear
+    for raw_linear, info in linear_info.items():
+        setattr(info["father"], info["name"], raw_linear)
+        
 
 def run_eval(model, tokenizer, sensitivity_dict, args, log_file):
     module_dict = {name: module for name, module in model.named_modules()}
