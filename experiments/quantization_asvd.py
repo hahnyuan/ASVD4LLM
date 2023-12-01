@@ -14,8 +14,7 @@ from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 from sensitivity import calib_sensitivity
-from quantization import gptq_quant_sequential,rtn_quant_sequential
-
+from quantization import gptq_quant_sequential, rtn_quant_sequential
 
 
 def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
@@ -43,8 +42,8 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
     sorted_sensitive_list = sorted(sensitivity_list, key=lambda x: -x[2])
 
     # binary search
-    act_aware=True
-    for target_params_ratio in [0.95, 0.9, 0.85, 0.8, 0.75]:
+    act_aware = True
+    for target_params_ratio in [2, 0.95, 0.9, 0.85, 0.8, 0.75]:
         high = len(sorted_sensitive_list) - 1
         low = 0
         while low < high:
@@ -64,30 +63,31 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
                 high = mid
             else:
                 low = mid + 1
-        for layername, ratio in layers_min_ratio.items():
-            # set ratio
-            raw_linear = module_dict[layername]
-            info = linear_info[raw_linear]
-            svd_linear = SVDLinear.from_linear(
-                raw_linear,
-                param_ratio=ratio,
-                alpha=args.alpha,
-                act_aware=act_aware,
-                oc_split=args.test_split
-                if raw_linear.in_features < raw_linear.out_features
-                else 1,
-                ic_split=args.test_split
-                if raw_linear.in_features > raw_linear.out_features
-                else 1,
-            )
-            setattr(info["father"], info["name"], svd_linear)
-        device="cuda:0"
-        qmodel=copy.deepcopy(model)
-        if args.quant_method=='rtn':
+        if target_params_ratio<=1:
+            for layername, ratio in layers_min_ratio.items():
+                # set ratio
+                raw_linear = module_dict[layername]
+                info = linear_info[raw_linear]
+                svd_linear = SVDLinear.from_linear(
+                    raw_linear,
+                    param_ratio=ratio,
+                    alpha=args.alpha,
+                    act_aware=act_aware,
+                    oc_split=args.test_split
+                    if raw_linear.in_features < raw_linear.out_features
+                    else 1,
+                    ic_split=args.test_split
+                    if raw_linear.in_features > raw_linear.out_features
+                    else 1,
+                )
+                setattr(info["father"], info["name"], svd_linear)
+        device = "cuda:0"
+        qmodel = copy.deepcopy(model)
+        if args.quant_method == "rtn":
             rtn_quant_sequential(qmodel, gptq_loader, device, args)
-        elif args.quant_method=='gptq':
+        elif args.quant_method == "gptq":
             gptq_quant_sequential(qmodel, gptq_loader, device, args)
-        qmodel=qmodel.to(device)
+        qmodel = qmodel.to(device)
         result = evaluate_model(
             qmodel,
             tokenizer,
@@ -96,7 +96,7 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
             eval_ppl="wikitext2,ptb",
             limit=-1,
         )
-        msg=f"{args.quant_method} {args.wbits}bit act-aware={act_aware} target_params_ratio={target_params_ratio}\n"
+        msg = f"\n{args.quant_method} {args.wbits}bit act-aware={act_aware} target_params_ratio={target_params_ratio}\n"
         print(msg)
         print(result)
         log_file.write(msg)
@@ -131,7 +131,7 @@ def main(args):
     # train_input_output_scale(model, calib_loader)
     # calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
-    model.seqlen=2048
+    model.seqlen = 2048
     run_eval(model, tokenizer, sensitivity, args, log_file, calib_loader)
 
 
@@ -175,17 +175,20 @@ if __name__ == "__main__":
         action="store_true",
     )
     parser.add_argument(
-        '--nsamples', type=int, default=256,
-        help='Number of calibration data samples.'
+        "--nsamples", type=int, default=256, help="Number of calibration data samples."
     )
     parser.add_argument(
-        '--wbits', type=int, default=8,
+        "--wbits",
+        type=int,
+        default=8,
     )
     parser.add_argument(
-        '--groupsize', type=int, default=128,
+        "--groupsize",
+        type=int,
+        default=128,
     )
     parser.add_argument(
-        '--quant_method', type=str, default='rtn', choices=['rtn', 'gptq']
+        "--quant_method", type=str, default="rtn", choices=["rtn", "gptq"]
     )
     args = parser.parse_args()
 
