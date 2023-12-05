@@ -13,8 +13,9 @@ from evaluate import evaluate_model,evaluate_perplexity
 from modules.svd_linear import SVDLinear
 
 from datautils import get_calib_data
-from svd_init_utils import calib_input_distribution, calib_fisher_info
+from act_aware_utils import calib_input_distribution, calib_fisher_info
 from sensitivity import calib_sensitivity
+from quantization import rtn_quant_sequential
 
 
 def search_best_compression_ratio(model, tokenizer, sensitivity_dict, calib_loader, args):
@@ -107,7 +108,7 @@ def main(args):
     model = model.to_bettertransformer()
 
     # sensitivity calibration
-    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, args.n_calib_samples)
+    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, 256)
     if args.scaling_method == "fisher":
         calib_fisher_info(model, calib_loader, args.use_cache)
     else:
@@ -118,6 +119,13 @@ def main(args):
 
     # search best compression ratio
     search_best_compression_ratio(model, tokenizer, sensitivity, calib_loader, args)
+
+    # quantization
+    if args.weight_quant != "none":
+        if args.weight_quant=="rtn_int8":
+            rtn_quant_sequential(model, 8)
+        elif args.weight_quant=="rtn_int6":
+            rtn_quant_sequential(model, 6)
 
     # evaluate
     result = evaluate_model(
@@ -185,6 +193,13 @@ if __name__ == "__main__":
         "--use_cache",
         action="store_true",
         help="use cached calibration results",
+    )
+    parser.add_argument(
+        "--weight_quant",
+        type=str,
+        default="none",
+        choices=["none", "rtn_int8", "rtn_int6"],
+        help="weight quantization method",
     )
     args = parser.parse_args()
 
