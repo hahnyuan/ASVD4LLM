@@ -9,6 +9,9 @@ This work explores a novel paradigm for reducing the memory footprint of LLMs to
 
 # usage
 
+You can use the following command to run the ASVD. This will take several hours to generate the sensitivity of each layer. The sensitivity will be saved in the cache file. 
+The time will be reduced to several minutes if you use the cache file.
+
 ```
 usage: asvd.py [-h] [--model_id MODEL_ID] [--ppl_target PPL_TARGET] [--param_ratio_target PARAM_RATIO_TARGET] [--act_aware] [--alpha ALPHA] [--n_calib_samples N_CALIB_SAMPLES] [--calib_dataset {wikitext2,c4,ptb}]
                [--scaling_method {abs_mean,abs_max,fisher}] [--use_cache]
@@ -46,8 +49,14 @@ CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --
 
 CUDA_VISIBLE_DEVICES='0' python asvd.py --model_id="huggyllama/llama-7b" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
-CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
 CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-13b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+
 ```
 
+You can use the cache file to omit the calibration process. The cache file can be downloaded from huggingface-hub, by using the following command:
+```
+git clone https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache cache
+```
+Or download the cache file from [here](https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache) yourself. And place the cache file in the `cache` folder.
