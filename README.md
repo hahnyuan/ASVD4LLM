@@ -43,13 +43,13 @@ CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="facebook/opt-125m" --act_awa
 
 CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="facebook/opt-125m" --act_aware --alpha 1 --n_calib_samples 16 --scaling_method fisher --param_ratio_target 0.9 --use_cache
 
-CUDA_VISIBLE_DEVICES='2' python asvd.py --model_id="huggyllama/llama-7b" --act_aware --alpha 1 --n_calib_samples 32 --scaling_method fisher --param_ratio_target 0.9 --use_cache
-
-CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --alpha 1 --n_calib_samples 32 --scaling_method fisher --param_ratio_target 0.9 --use_cache
+CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="huggyllama/llama-7b" --act_aware --alpha 1 --n_calib_samples 32 --scaling_method fisher --param_ratio_target 0.9 --use_cache
 
 CUDA_VISIBLE_DEVICES='0' python asvd.py --model_id="huggyllama/llama-7b" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
-CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+CUDA_VISIBLE_DEVICES='0' python asvd.py --model_id="huggyllama/llama-7b" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+
+CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --alpha 1 --n_calib_samples 32 --scaling_method fisher --param_ratio_target 0.9 --use_cache
 
 CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-13b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
@@ -59,4 +59,4 @@ You can use the cache file to omit the calibration process. The cache file can b
 ```
 git clone https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache cache
 ```
-Or download the cache file from [here](https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache) yourself. And place the cache file in the `cache` folder.
+Or download the cache file from [here](https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache/tree/main) yourself. And place the cache file in the `cache` folder.
