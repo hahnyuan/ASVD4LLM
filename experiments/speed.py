@@ -2,11 +2,8 @@ import argparse
 import os
 import torch
 import torch.nn as nn
-import copy
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-)
+
+from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM
 from evaluate import evaluate_model
 from modules.svd_linear import SVDLinear
 
@@ -14,10 +11,10 @@ from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
 from svd_init_utils import calib_input_distribution, calib_input_output_distribution
 from sensitivity import calib_sensitivity
-from quantization import gptq_quant_sequential, rtn_quant_sequential
+import time
 
 
-def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
+def run_eval(model, tokenizer, sensitivity_dict, args, log_file):
     module_dict = {name: module for name, module in model.named_modules()}
     full_name_dict = {module: name for name, module in model.named_modules()}
     linear_info = {}
@@ -42,9 +39,10 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
     sorted_sensitive_list = sorted(sensitivity_list, key=lambda x: -x[2])
 
     # binary search
+    # for act_aware in [False, True]:
     act_aware = True
-    # for target_params_ratio in [2, 0.95, 0.9, 0.85, 0.8, 0.75]:
-    for target_params_ratio in [0.95,0.85]:
+    # [1, 0.95, 0.9, 0.85, 0.8, 0.75]
+    for target_params_ratio in [0.75, 0.8, 0.85, 0.9, 0.95, 1]:
         high = len(sorted_sensitive_list) - 1
         low = 0
         while low < high:
@@ -64,46 +62,55 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file, gptq_loader):
                 high = mid
             else:
                 low = mid + 1
-        if target_params_ratio<=1:
-            for layername, ratio in layers_min_ratio.items():
-                # set ratio
-                raw_linear = module_dict[layername]
-                info = linear_info[raw_linear]
-                svd_linear = SVDLinear.from_linear(
-                    raw_linear,
-                    param_ratio=ratio,
-                    alpha=args.alpha,
-                    act_aware=act_aware,
-                    oc_split=args.test_split
-                    if raw_linear.in_features < raw_linear.out_features
-                    else 1,
-                    ic_split=args.test_split
-                    if raw_linear.in_features > raw_linear.out_features
-                    else 1,
-                )
-                setattr(info["father"], info["name"], svd_linear)
-        device = "cuda:0"
-        qmodel = copy.deepcopy(model)
-        if args.quant_method == "rtn":
-            rtn_quant_sequential(qmodel, gptq_loader, device, args)
-        elif args.quant_method == "gptq":
-            gptq_quant_sequential(qmodel, gptq_loader, device, args)
-        qmodel = qmodel.to(device)
-        result = evaluate_model(
-            qmodel,
-            tokenizer,
-            args.model_id,
-            "",
-            eval_ppl="wikitext2,ptb",
-            limit=-1,
-        )
-        msg = f"\n{args.quant_method} {args.wbits}bit act-aware={act_aware} target_params_ratio={target_params_ratio}\n"
+        for layername, ratio in layers_min_ratio.items():
+            # set ratio
+            raw_linear = module_dict[layername]
+            info = linear_info[raw_linear]
+            svd_linear = SVDLinear.from_linear(
+                raw_linear,
+                param_ratio=ratio,
+                alpha=args.alpha,
+                act_aware=act_aware,
+                oc_split=args.test_split
+                if raw_linear.in_features < raw_linear.out_features
+                else 1,
+                ic_split=args.test_split
+                if raw_linear.in_features > raw_linear.out_features
+                else 1,
+            )
+            setattr(info["father"], info["name"], svd_linear)
+        model.to("cpu")
+        x = torch.randint(0, 1000, (1, 2048)).to(torch.int64).to(model.device)
+        model.eval()
+        y = model.forward(x, use_cache=True)  # warmup
+
+        past_key_values = y.past_key_values
+        st = time.time()
+        for i in range(10):
+            model.forward(x)
+        ed = time.time()
+        result = ed - st
+        msg = f"\nprefill act-aware{act_aware} target_params_ratio={target_params_ratio}\n"
         print(msg)
-        print(result)
+
+        x = torch.randint(0, 1000, (1, 1)).to(torch.int64).to(model.device)
+        for i in range(10):
+            y = model.forward(x, past_key_values=past_key_values)  # warmup
+        st = time.time()
+        for i in range(100):
+            model.forward(x, past_key_values=past_key_values)
+        ed = time.time()
+        result2 = ed - st
+        msg = (
+            f"\ndecode act-aware{act_aware} target_params_ratio={target_params_ratio}\n"
+        )
+        print(msg)
+        print(result, result2)
+
         log_file.write(msg)
-        log_file.write(str(result))
+        log_file.write(f"{result},{result2}\n")
         log_file.flush()
-        del qmodel
+        model.to("cuda")
 
 
 def main(args):
@@ -115,26 +122,27 @@ def main(args):
     tokenizer.padding_side = "right"  # Fix for fp16
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, device_map="cpu", torch_dtype=torch.float16
+        model_id, device_map="auto", torch_dtype=torch.bfloat16
     )
 
     model = model.to_bettertransformer()
-
     save_path = f"output/final/"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    log_file = open(f"{save_path}/{args.model_id.replace('/','_')}_quant.json", "a+")
-
+    log_file = open(
+        f"{save_path}/{args.model_id.replace('/','_')}_f{args.num_fewshot}_time.json",
+        "a+",
+    )
     cablib_dataset = "wikitext2"
-    calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, args.nsamples)
+    calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
     calib_input_distribution(model, calib_loader, args.scaling_method)
     sensitivity = calib_sensitivity(model, tokenizer, args)
     # calib_input_output_distribution(model, calib_loader)
     # train_input_output_scale(model, calib_loader)
     # calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
-    model.seqlen = 2048
-    run_eval(model, tokenizer, sensitivity, args, log_file, calib_loader)
+    torch.set_num_threads(32)
+    run_eval(model, tokenizer, sensitivity, args, log_file)
 
 
 if __name__ == "__main__":
@@ -177,20 +185,17 @@ if __name__ == "__main__":
         action="store_true",
     )
     parser.add_argument(
-        "--nsamples", type=int, default=256, help="Number of calibration data samples."
+        "--mmlu",
+        action="store_true",
     )
     parser.add_argument(
-        "--wbits",
+        "--original_naive",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--num_fewshot",
         type=int,
-        default=8,
-    )
-    parser.add_argument(
-        "--groupsize",
-        type=int,
-        default=128,
-    )
-    parser.add_argument(
-        "--quant_method", type=str, default="rtn", choices=["rtn", "gptq"]
+        default=5,
     )
     args = parser.parse_args()
 

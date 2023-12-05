@@ -12,7 +12,7 @@ from modules.svd_linear import SVDLinear
 
 from utils import print_gpu_memory
 from datautils import get_calib_data, sample_train_loaders
-from svd_init_utils import calib_input_distribution, calib_input_output_distribution
+from svd_init_utils import calib_input_distribution, calib_fisher_info
 from sensitivity import calib_sensitivity
 
 def run_naive_svd(model, tokenizer,  args, log_file):
@@ -53,9 +53,10 @@ def run_naive_svd(model, tokenizer,  args, log_file):
             model,
             tokenizer,
             args.model_id,
-            "mmlu",
+            "mmlu" if args.mmlu else "",
             eval_ppl="wikitext2,ptb",
             limit=-1,
+            num_fewshot=args.num_fewshot
         )
         log_file.write(f"naive svd target_params_ratio={target_params_ratio}\n")
         log_file.write(str(result))
@@ -91,7 +92,8 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file):
     sorted_sensitive_list = sorted(sensitivity_list, key=lambda x: -x[2])
 
     # binary search
-    for act_aware in [False, True]:
+    # for act_aware in [False, True]:
+    for act_aware in [True,False]:
         for target_params_ratio in [0.95, 0.9, 0.85, 0.8, 0.75]:
             high = len(sorted_sensitive_list) - 1
             low = 0
@@ -127,15 +129,17 @@ def run_eval(model, tokenizer, sensitivity_dict, args, log_file):
                     ic_split=args.test_split
                     if raw_linear.in_features > raw_linear.out_features
                     else 1,
+                    scale_dim=0 if args.scaling_method=="fisher" else 1,
                 )
                 setattr(info["father"], info["name"], svd_linear)
             result = evaluate_model(
                 model,
                 tokenizer,
                 args.model_id,
-                "mmlu",
+                "mmlu" if args.mmlu else "",
                 eval_ppl="wikitext2,ptb",
                 limit=-1,
+                num_fewshot=args.num_fewshot
             )
             msg=f"\nact-aware{act_aware} target_params_ratio={target_params_ratio}\n"
             print(msg)
@@ -158,33 +162,40 @@ def main(args):
     )
 
     model = model.to_bettertransformer()
-
-    result = evaluate_model(
-        model,
-        tokenizer,
-        args.model_id,
-        "mmlu",
-        eval_ppl="wikitext2,ptb",
-        limit=-1,
-    )
-    print(result)
     save_path = f"output/final/"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    log_file = open(f"{save_path}/{args.model_id.replace('/','_')}.json", "a+")
-    log_file.write("\noriginal\n")
-    log_file.write(str(result))
-    log_file.flush()
+    log_file = open(f"{save_path}/{args.model_id.replace('/','_')}_f{args.num_fewshot}_{args.scaling_method}.json", "a+")
+    
+
+    if args.original_naive:
+        result = evaluate_model(
+            model,
+            tokenizer,
+            args.model_id,
+            "mmlu" if args.mmlu else "",
+            eval_ppl="wikitext2,ptb",
+            limit=-1,
+            num_fewshot=args.num_fewshot
+        )
+        print(result)
+        log_file.write("\noriginal\n")
+        log_file.write(str(result))
+        log_file.flush()
 
     cablib_dataset = "wikitext2"
     calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-    calib_input_distribution(model, calib_loader, args.scaling_method)
+    if args.scaling_method=="fisher":
+        calib_fisher_info(model, calib_loader, args.disable_cache)
+    else:
+        calib_input_distribution(model, calib_loader, args.scaling_method, args.disable_cache)
     sensitivity = calib_sensitivity(model, tokenizer, args)
     # calib_input_output_distribution(model, calib_loader)
     # train_input_output_scale(model, calib_loader)
     # calib_full_input(model, calib_loader)
     print_gpu_memory("before convert_to_svd_linear")
-    run_naive_svd(model, tokenizer, args, log_file)
+    if args.original_naive:
+        run_naive_svd(model, tokenizer, args, log_file)
     run_eval(model, tokenizer, sensitivity, args, log_file)
 
 
@@ -221,11 +232,24 @@ if __name__ == "__main__":
         "--scaling_method",
         type=str,
         default="abs_mean",
-        choices=["abs_mean", "abs_max"],
+        choices=["abs_mean", "abs_max", "fisher"],
     )
     parser.add_argument(
         "--disable_cache",
         action="store_true",
+    )
+    parser.add_argument(
+        "--mmlu",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--original_naive",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--num_fewshot",
+        type=int,
+        default=0,
     )
     args = parser.parse_args()
 

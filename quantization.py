@@ -390,6 +390,7 @@ class GPTQ:
         torch.cuda.synchronize()
         print("time %.2f" % (time.time() - tick))
         print("error", torch.sum(Losses).item())
+        # breakpoint()
 
         if actorder:
             Q = Q[:, invperm]

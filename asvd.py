@@ -6,22 +6,18 @@ import torch.nn as nn
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    OPTForCausalLM
 )
 
 
-from evaluate import evaluate_model
+from evaluate import evaluate_model,evaluate_perplexity
 from modules.svd_linear import SVDLinear
 
-from utils import print_gpu_memory
-from datautils import get_calib_data, sample_train_loaders
+from datautils import get_calib_data
 from svd_init_utils import calib_input_distribution, calib_fisher_info
 from sensitivity import calib_sensitivity
 
 
-
-
-def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
+def search_best_compression_ratio(model, tokenizer, sensitivity_dict, calib_loader, args):
     path = f"output/{args.model_id.replace('/','_')}"
     if not os.path.exists(path):
         os.makedirs(path)
@@ -56,7 +52,9 @@ def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
     # binary search
     high = len(sorted_sensitive_list) - 1
     low = 0
-    ppl_target = args.ppl_target
+    assert args.ppl_target>0 or args.param_ratio_target>0
+    
+    input_ids=torch.cat([_['input_ids'] for _ in calib_loader],0)
     while low < high:
         mid = (low + high) // 2
         layers_min_ratio = {layername: 1 for layername in sensitivity_dict.keys()}
@@ -77,29 +75,27 @@ def search_best_compression_ratio(model, tokenizer, sensitivity_dict, args):
             setattr(info["father"], info["name"], svd_linear)
             tot_params += raw_linear.weight.numel()
             compress_params += raw_linear.weight.numel() * ratio
-        result = evaluate_model(
-            model,
-            tokenizer,
-            args.model_id,
-            "",
-            eval_ppl="wikitext2",
-            limit=15,
-        )
-        ppl = result["wikitext2"]
+        ppl = evaluate_perplexity(model,input_ids, args.n_calib_samples)
         param_ratio = compress_params / tot_params
         msg = f"low={low} mid={mid}, high={high}, ppl={ppl}, param_ratio={param_ratio}"
         print(msg)
         log_file.write(f"{msg}\n")
-        if ppl < ppl_target:
-            high = mid
+        if args.ppl_target>0:
+            if ppl < args.ppl_target:
+                high = mid
+            else:
+                low = mid + 1
         else:
-            low = mid + 1
+            if param_ratio > args.param_ratio_target:
+                high = mid
+            else:
+                low = mid + 1
 
 
 def main(args):
     model_id = args.model_id
 
-    # Tokenizer
+    # Load model
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"  # Fix for fp16
@@ -110,19 +106,32 @@ def main(args):
 
     model = model.to_bettertransformer()
 
-    cablib_dataset = "wikitext2"
-    calib_loader = get_calib_data(cablib_dataset, tokenizer, model_id, 256)
-    if args.scaling_method=="fisher":
-        calib_fisher_info(model, calib_loader,args.disable_cache)
+    # sensitivity calibration
+    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, args.n_calib_samples)
+    if args.scaling_method == "fisher":
+        calib_fisher_info(model, calib_loader, args.use_cache)
     else:
-        calib_input_distribution(model, calib_loader, args.scaling_method,args.disable_cache)
-    sensitivity = calib_sensitivity(model, tokenizer, args)
-    print_gpu_memory("before convert_to_svd_linear")
-    search_best_compression_ratio(model, tokenizer, sensitivity, args)
+        calib_input_distribution(
+            model, calib_loader, args.scaling_method, args.use_cache
+        )
+    sensitivity = calib_sensitivity(model, tokenizer, calib_loader, args, args.use_cache)
+
+    # search best compression ratio
+    search_best_compression_ratio(model, tokenizer, sensitivity, calib_loader, args)
+
+    # evaluate
+    result = evaluate_model(
+        model,
+        tokenizer,
+        args.model_id,
+        "",
+        eval_ppl="wikitext2,ptb",
+        limit=-1,
+    )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Model Training Script")
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model_id",
         type=str,
@@ -132,37 +141,50 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ppl_target",
         type=float,
+        default=-1,
+        help="target ppl",
+    )
+    parser.add_argument(
+        "--param_ratio_target",
+        type=float,
+        default=-1,
+        help="target param ratio",
     )
     parser.add_argument(
         "--act_aware",
         action="store_true",
-        help="use act aware svd",
+        help="use act aware svd (ASVD)",
     )
     parser.add_argument(
         "--alpha",
         type=float,
         default=0.5,
+        help="hyper-parameter alpha for ASVD",
     )
     parser.add_argument(
         "--n_calib_samples",
         type=int,
         default=32,
+        help="number of samples used for calibration",
     )
     parser.add_argument(
         "--calib_dataset",
         type=str,
-        default='wikitext2',
-        choices=['wikitext2', 'c4', 'ptb'],
+        default="wikitext2",
+        choices=["wikitext2", "c4", "ptb"],
+        help="calibration dataset",
     )
     parser.add_argument(
         "--scaling_method",
         type=str,
         default="abs_mean",
-        choices=["abs_mean", "abs_max","fisher"],
+        choices=["abs_mean", "abs_max", "fisher"],
+        help="scaling method",
     )
     parser.add_argument(
-        "--disable_cache",
+        "--use_cache",
         action="store_true",
+        help="use cached calibration results",
     )
     args = parser.parse_args()
 

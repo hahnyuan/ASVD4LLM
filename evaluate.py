@@ -89,36 +89,32 @@ class EvalLM(BaseLM):
         )
 
 
-_fast_eval_ppl_wiki2_cache = {}
-
-
 @torch.no_grad()
-def fast_eval_ppl_wiki2(model, tokenizer, nsample, seqlen, batchsize=1):
-    if tokenizer in _fast_eval_ppl_wiki2_cache:
-        testenc = _fast_eval_ppl_wiki2_cache[tokenizer]
-    else:
-        testdata = load_dataset(
-            "wikitext",
-            "wikitext-2-raw-v1",
-            split="test",
+def evaluate_perplexity(model, dataset, limit):
+    """
+    dataset: input ids tensor of shape [batch, sequence length]
+    """
+    nsamples, seqlen = dataset.size()
+
+    nlls = []
+
+    for i in range(nsamples):
+        if i == limit:
+            break
+        input_ids = dataset[i:i+1,:-1].to(model.device)
+        labels = dataset[i:i+1,1:].contiguous()
+        logits = model(input_ids=input_ids)[0]
+        shift_logits = logits[:, :, :]
+        shift_labels = labels.to(model.device)
+        loss_fct = nn.CrossEntropyLoss()
+        loss = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
         )
-        testenc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt")[
-            "input_ids"
-        ]
-        # concated length 1294336
-        _fast_eval_ppl_wiki2_cache[tokenizer] = testenc
-    # split testenc into batch
-    # remove tail
-    testenc = testenc[
-        :, : (testenc.size(1) // (seqlen * batchsize)) * seqlen * batchsize
-    ]
-    testenc = testenc.view(-1, seqlen)
-    for i in tqdm(range(nsample // batchsize)):
-        batch = testenc[i].to(model.device)
-        breakpoint()
-        outputs = model.model(batch)
-        hidden_states = outputs[0]
-        logits = model.model.lm_head(hidden_states)
+        neg_log_likelihood = loss.float() * seqlen
+        nlls.append(neg_log_likelihood)
+    ppl = torch.exp(torch.stack(nlls).sum() / (len(nlls) * seqlen))
+    return ppl.item()
 
 
 @torch.no_grad()

@@ -2,13 +2,69 @@ import os
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
+def calib_fisher_info(model,calib_loader,use_cache=True):
+    model_id = model.config._name_or_path
+    cache_file = f"cache/{model_id.replace('/','_')}_calib_fisher_info.pt"
+    if os.path.exists(cache_file) and use_cache:
+        all_fisher_info = torch.load(cache_file, map_location="cpu")
+        for name, module in model.named_modules():
+            if isinstance(module, nn.Linear):
+                module.scaling_diag_matrix = all_fisher_info[name].to(
+                    module.weight.device
+                )
+        return
+    model.eval()
+
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module.scaling_diag_matrix = 0
+
+    # get fisher info
+    for batch in tqdm(calib_loader):
+        input_ids=batch["input_ids"][:,:-1].to(model.device)
+        labels=batch["input_ids"][:,1:].to(model.device)
+        out=model(input_ids=input_ids,labels=labels)
+        out[0].backward()
+        for name, module in model.named_modules():
+            if isinstance(module, nn.Linear):
+                module.scaling_diag_matrix += module.weight.grad.detach().pow(2).mean(0)
+        model.zero_grad()
+
+        # logits=out[0]
+        # for i in range(logits.size(1)-5,logits.size(1)-1):
+        #     shift_logits = logits[..., i:i+1, :].contiguous()
+        #     shift_labels = labels[..., i+1:i+2].contiguous()
+        #     # Flatten the tokens
+        #     loss_fct = CrossEntropyLoss()
+        #     loss = loss_fct(shift_logits.view(-1, model.config.vocab_size), shift_labels.view(-1))
+        #     loss.backward(retain_graph=True)
+        #     for name, module in model.named_modules():
+        #         if isinstance(module, nn.Linear):
+        #             module.scaling_diag_matrix += module.weight.grad.detach().pow(2).mean(0)
+        #             # module.scaling_diag_matrix += module.weight.grad.detach().pow(2).mean(1)
+        #     model.zero_grad()
+    
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module.scaling_diag_matrix = module.scaling_diag_matrix.div(len(calib_loader)).sqrt()
+
+
+    # remove and save scaling_diag_matrix
+    all_fisher_info = {}
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            module._forward_hooks.clear()
+            all_fisher_info[name] = module.scaling_diag_matrix
+    torch.save(all_fisher_info, cache_file)
 
 @torch.no_grad()
-def calib_input_distribution(model, calib_loader,method):
+def calib_input_distribution(model, calib_loader,method,use_cache=True):
     model_id = model.config._name_or_path
     cache_file = f"cache/{model_id.replace('/','_')}_calib_input_distribution_{method}.pt"
-    if os.path.exists(cache_file):
+    if os.path.exists(cache_file) and use_cache:
         all_scaling_diag_matrix = torch.load(cache_file, map_location="cpu")
         for name, module in model.named_modules():
             if isinstance(module, nn.Linear):
