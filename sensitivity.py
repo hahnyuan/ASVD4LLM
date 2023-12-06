@@ -2,8 +2,9 @@ import os
 import torch
 import torch.nn as nn
 from modules.svd_linear import SVDLinear
-from evaluate import evaluate_model,evaluate_perplexity
+from evaluate import evaluate_model, evaluate_perplexity
 from tqdm import tqdm
+
 
 @torch.no_grad()
 def calib_sensitivity(model, tokenizer, calib_loader, args, use_cache=True):
@@ -32,9 +33,9 @@ def calib_sensitivity(model, tokenizer, calib_loader, args, use_cache=True):
 
     sensitivity_dict = {}
     param_ratio_candidates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    input_ids=torch.cat([_['input_ids'] for _ in calib_loader],0)
+    input_ids = torch.cat([_["input_ids"] for _ in calib_loader], 0)
     print(f"input_ids.shape={input_ids.shape}")
-    pbar=tqdm(total=len(linear_info)*len(param_ratio_candidates))
+    pbar = tqdm(total=len(linear_info) * len(param_ratio_candidates))
     for raw_linear, info in linear_info.items():
         sensitivity_dict[info["full_name"]] = {}
         for param_ratio in param_ratio_candidates:
@@ -46,7 +47,7 @@ def calib_sensitivity(model, tokenizer, calib_loader, args, use_cache=True):
             )
             setattr(info["father"], info["name"], svd_linear)
 
-            ppl = evaluate_perplexity(model,input_ids, args.n_calib_samples)
+            ppl = evaluate_perplexity(model, input_ids, args.n_calib_samples)
             sensitivity_dict[info["full_name"]][param_ratio] = ppl
             print(f"{info['full_name']} {param_ratio} {ppl}")
             pbar.update(1)

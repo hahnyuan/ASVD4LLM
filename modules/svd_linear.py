@@ -19,14 +19,9 @@ class SVDLinear(nn.Module):
         linear: nn.Linear,
         param_ratio: float,
         act_aware=False,
-        reorder=False,
-        gradient_aware=False,
         ic_split=1,
         oc_split=1,
-        train_scale=False,
-        act_full=False,
         alpha=1,
-        scale_dim=1,
     ):
         if param_ratio >= 1:
             return linear
@@ -37,15 +32,18 @@ class SVDLinear(nn.Module):
         # print("rank", rank)
         w = linear.weight.data.float()
         if act_aware:
-            scaling_diag_matrix = linear.scaling_diag_matrix**alpha
+            scaling_diag_matrix = 1  # avoid zero division
+            if hasattr(linear, "scaling_diag_matrix"):
+                # print("WARNING: scaling_diag_matrix is used")
+                scaling_diag_matrix *= linear.scaling_diag_matrix**alpha
+                # scaling_diag_matrix *= linear.scaling_diag_matrix**0.5
+            if hasattr(linear, "fisher_info"):
+                scaling_diag_matrix *= linear.fisher_info**alpha
+                # scaling_diag_matrix *= linear.fisher_info**1
+            # if not (scaling_diag_matrix == scaling_diag_matrix).all():
+            #     breakpoint()
             scaling_diag_matrix += 1e-6  # avoid zero division
-            assert scale_dim==1
-            if scale_dim==1:
-                w = w * scaling_diag_matrix.view(1, -1)
-            elif scale_dim==0:
-                w = w * scaling_diag_matrix.view(-1, 1)
-            else:
-                raise NotImplementedError
+            w = w * scaling_diag_matrix.view(1, -1)
         Us = []
         Ss = []
         Vs = []
@@ -59,10 +57,7 @@ class SVDLinear(nn.Module):
                 .to(linear.weight.device)
             )
         if act_aware:
-            if scale_dim==0:
-                S = S / scaling_diag_matrix.view(-1, 1)
-            elif scale_dim==1:
-                V = V / scaling_diag_matrix.view(-1, 1)
+            V = V / scaling_diag_matrix.view(-1, 1)
         Us = [U]
         Ss = [S]
         Vs = [V]

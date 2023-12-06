@@ -70,7 +70,6 @@ def binary_search_truncation_rank(
                 raw_linear = module_dict[layername]
                 tot_params += raw_linear.weight.numel()
                 compress_params += raw_linear.weight.numel() * ratio
-            ppl = evaluate_perplexity(model, input_ids, args.n_calib_samples)
             param_ratio = compress_params / tot_params
             msg = f"low={low} mid={mid}, high={high}, param_ratio={param_ratio}"
             print(msg)

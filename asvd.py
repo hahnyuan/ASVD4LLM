@@ -12,7 +12,6 @@ from quantization import rtn_quant_sequential
 from binary_search import binary_search_truncation_rank
 
 
-
 def main(args):
     model_id = args.model_id
 
@@ -28,9 +27,9 @@ def main(args):
 
     # sensitivity calibration
     calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, 256)
-    if args.scaling_method == "fisher":
+    if "fisher" in args.scaling_method:
         calib_fisher_info(model, calib_loader, args.use_cache)
-    else:
+    if "abs" in args.scaling_method:
         calib_input_distribution(
             model, calib_loader, args.scaling_method, args.use_cache
         )
@@ -53,14 +52,16 @@ def main(args):
         model,
         tokenizer,
         args.model_id,
-        "",
+        "mmlu" if args.eval_mmlu else "",
         eval_ppl="wikitext2,ptb",
         limit=-1,
     )
     print(result)
+    with open("output/result.txt", "a+") as f:
+        f.write(f"{args}\n")
+        f.write(f"{result}\n")
 
     # add your code here (save model, etc.)
-
 
 
 if __name__ == "__main__":
@@ -111,7 +112,7 @@ if __name__ == "__main__":
         "--scaling_method",
         type=str,
         default="abs_mean",
-        choices=["abs_mean", "abs_max", "fisher"],
+        choices=["abs_mean", "abs_max", "fisher", "fisher_abs_mean"],
         help="scaling method",
     )
     parser.add_argument(
@@ -125,6 +126,11 @@ if __name__ == "__main__":
         default="none",
         choices=["none", "rtn_int8", "rtn_int6"],
         help="weight quantization method",
+    )
+    parser.add_argument(
+        "--eval_mmlu",
+        action="store_true",
+        help="evaluate mmlu",
     )
     args = parser.parse_args()
 
