@@ -5,14 +5,22 @@ import numpy as np
 
 
 class SVDLinear(nn.Module):
-    def __init__(self, U, S, V, bias=None) -> None:
+    def __init__(self, U, S, V, bias=None,sigma_fuse='UV') -> None:
         super().__init__()
         self.ALinear = nn.Linear(U.size(1), U.size(0), bias=bias is not None)
-        self.ALinear.weight.data = U.mul(S.sqrt())
+        
         if bias is not None:
             self.ALinear.bias.data = bias
         self.BLinear = nn.Linear(V.size(1), V.size(0), bias=False)
-        self.BLinear.weight.data = V.t().mul(S.sqrt().view(-1, 1))
+        if sigma_fuse == 'UV':
+            self.ALinear.weight.data = U.mul(S.sqrt())
+            self.BLinear.weight.data = V.t().mul(S.sqrt().view(-1, 1))
+        elif sigma_fuse == 'U':
+            self.ALinear.weight.data = U.mul(S)
+            self.BLinear.weight.data = V.t()
+        elif sigma_fuse == 'V':
+            self.ALinear.weight.data = U
+            self.BLinear.weight.data = V.t().mul(S.view(-1, 1))
 
     @staticmethod
     def from_linear(
@@ -22,6 +30,7 @@ class SVDLinear(nn.Module):
         ic_split=1,
         oc_split=1,
         alpha=1,
+        sigma_fuse="UV"
     ):
         if param_ratio >= 1:
             return linear
@@ -94,7 +103,7 @@ class SVDLinear(nn.Module):
                 )
 
         assert len(Us) == len(Ss) == len(Vs) == 1
-        new_linear = SVDLinear(Us[0], Ss[0], Vs[0], bias)
+        new_linear = SVDLinear(Us[0], Ss[0], Vs[0], bias,sigma_fuse)
         return new_linear.to(linear.weight.dtype)
 
     def forward(self, inp):

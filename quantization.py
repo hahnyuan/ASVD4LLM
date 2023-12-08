@@ -159,8 +159,8 @@ def rtn_quant_sequential(model, wbits):
 
     if "opt" in model.config._name_or_path:
         layers = model.model.decoder.layers
-    elif "llama" in model.model_id:
-        layers = model.model._name_or_path
+    elif "llama" in model.config._name_or_path:
+        layers = model.model.layers
     for i in range(len(layers)):
         layer = layers[i].to(model.device)
         subset = find_layers(layer)

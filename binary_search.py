@@ -53,6 +53,7 @@ def binary_search_truncation_rank(
                     param_ratio=ratio,
                     alpha=args.alpha,
                     act_aware=args.act_aware,
+                    sigma_fuse=args.sigma_fuse,
                 )
                 setattr(info["father"], info["name"], svd_linear)
                 tot_params += raw_linear.weight.numel()
@@ -71,7 +72,7 @@ def binary_search_truncation_rank(
                 tot_params += raw_linear.weight.numel()
                 compress_params += raw_linear.weight.numel() * ratio
             param_ratio = compress_params / tot_params
-            msg = f"low={low} mid={mid}, high={high}, param_ratio={param_ratio}"
+            msg = f"low={low} mid={mid}, high={high}, param_ratio={param_ratio}({compress_params}/{tot_params})"
             print(msg)
             if param_ratio > args.param_ratio_target:
                 high = mid
@@ -90,5 +91,6 @@ def binary_search_truncation_rank(
             param_ratio=ratio,
             alpha=args.alpha,
             act_aware=args.act_aware,
+            sigma_fuse=args.sigma_fuse,
         )
         setattr(info["father"], info["name"], svd_linear)

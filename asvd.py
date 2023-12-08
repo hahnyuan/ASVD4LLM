@@ -7,7 +7,7 @@ from transformers import (
 from evaluate import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info
-from sensitivity import calib_sensitivity
+from sensitivity import calib_sensitivity_ppl,calib_sensitivity_stable_rank
 from quantization import rtn_quant_sequential
 from binary_search import binary_search_truncation_rank
 
@@ -33,11 +33,13 @@ def main(args):
         calib_input_distribution(
             model, calib_loader, args.scaling_method, args.use_cache
         )
-    sensitivity = calib_sensitivity(
-        model, tokenizer, calib_loader, args, args.use_cache
-    )
+    if args.sensitivity_metric=="ppl":
+        sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
+    elif args.sensitivity_metric=="stable_rank":
+        sensitivity = calib_sensitivity_stable_rank(model, calib_loader, args, args.use_cache)
 
     # search best truncation rank for each layer
+    
     binary_search_truncation_rank(model, sensitivity, calib_loader, args)
 
     # quantization
@@ -116,6 +118,13 @@ if __name__ == "__main__":
         help="scaling method",
     )
     parser.add_argument(
+        "--sensitivity_metric",
+        type=str,
+        default="ppl",
+        choices=["ppl", "stable_rank"],
+        help="search metric",
+    )
+    parser.add_argument(
         "--use_cache",
         action="store_true",
         help="use cached calibration results",
@@ -131,6 +140,13 @@ if __name__ == "__main__":
         "--eval_mmlu",
         action="store_true",
         help="evaluate mmlu",
+    )
+    parser.add_argument(
+        "--sigma_fuse",
+        type=str,
+        default="UV",
+        help="sigma fuse method",
+        choices=["U", "V", "UV"],
     )
     args = parser.parse_args()
 
