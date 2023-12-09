@@ -7,6 +7,29 @@ This work explores a novel paradigm for reducing the memory footprint of LLMs to
 - pytorch>=2.1.0
 - transformers>=4.35.0
 
+# direct use
+
+Some of the decomposed models are uploaded to huggingface hub. You can download and load them using the following code:
+
+```python3
+from transformers import AutoModelForCausalLM, AutoTokenizer
+model_id = "hahnyuan/opt-125m-asvd90"
+
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
+)
+```
+
+Now supported models (asvd90 means target param ratio=90%):
+- hahnyuan/opt-125m-asvd90 
+- hahnyuan/Llama-2-7b-hf-asvd95
+- hahnyuan/Llama-2-7b-hf-asvd90
+- hahnyuan/Llama-2-7b-hf-asvd85
+- hahnyuan/Llama-2-13b-hf-asvd95
+- hahnyuan/Llama-2-13b-hf-asvd90
+- hahnyuan/Llama-2-13b-hf-asvd85
+
 # usage
 
 You can use the following command to run the ASVD. This will take several hours to generate the sensitivity of each layer. The sensitivity will be saved in the cache file. 

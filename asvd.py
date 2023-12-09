@@ -3,7 +3,9 @@ import torch
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    OPTForCausalLM
 )
+from transformers.models.opt.configuration_opt import OPTConfig
 from evaluate import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info
@@ -63,7 +65,7 @@ def main(args):
         f.write(f"{args}\n")
         f.write(f"{result}\n")
 
-    # add your code here (save model, etc.)
+    # finished
 
 
 if __name__ == "__main__":

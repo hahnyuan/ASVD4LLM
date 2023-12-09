@@ -12,15 +12,17 @@ class SVDLinear(nn.Module):
         if bias is not None:
             self.ALinear.bias.data = bias
         self.BLinear = nn.Linear(V.size(1), V.size(0), bias=False)
+        self.truncation_rank=S.size(0)
         if sigma_fuse == 'UV':
-            self.ALinear.weight.data = U.mul(S.sqrt())
-            self.BLinear.weight.data = V.t().mul(S.sqrt().view(-1, 1))
+            self.ALinear.weight.data = U.mul(S.sqrt()).contiguous()
+            self.BLinear.weight.data = V.t().mul(S.sqrt().view(-1, 1)).contiguous()
         elif sigma_fuse == 'U':
-            self.ALinear.weight.data = U.mul(S)
-            self.BLinear.weight.data = V.t()
+            self.ALinear.weight.data = U.mul(S).contiguous()
+            self.BLinear.weight.data = V.t().contiguous()
         elif sigma_fuse == 'V':
-            self.ALinear.weight.data = U
-            self.BLinear.weight.data = V.t().mul(S.view(-1, 1))
+            self.ALinear.weight.data = U.contiguous()
+            self.BLinear.weight.data = V.t().mul(S.view(-1, 1)).contiguous()
+        
 
     @staticmethod
     def from_linear(
@@ -76,9 +78,9 @@ class SVDLinear(nn.Module):
         else:
             bias = None
 
-        # nan check
+        # nan or inf check
         for S in Ss:
-            if torch.isnan(S).any():
+            if (S!=S).any():
                 print("nan in S")
                 return (
                     nn.Linear(linear.in_features, linear.out_features)
@@ -86,7 +88,7 @@ class SVDLinear(nn.Module):
                     .to(linear.weight.device)
                 )
         for U in Us:
-            if torch.isnan(U).any():
+            if (U!=U).any():
                 print("nan in U")
                 return (
                     nn.Linear(linear.in_features, linear.out_features)
@@ -94,7 +96,7 @@ class SVDLinear(nn.Module):
                     .to(linear.weight.device)
                 )
         for V in Vs:
-            if torch.isnan(V).any():
+            if (V!=V).any():
                 print("nan in V")
                 return (
                     nn.Linear(linear.in_features, linear.out_features)
