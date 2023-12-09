@@ -6,8 +6,7 @@ For more details, please read our paper.
 
 # Requirement
 - python>=3.10
-- pytorch>=2.1.0
-- transformers>=4.35.0
+- pip install -r requirements.txt
 
 # Direct use
 
