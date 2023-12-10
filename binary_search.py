@@ -3,11 +3,10 @@ import torch
 import torch.nn as nn
 from evaluate import evaluate_model, evaluate_perplexity
 from modules.svd_linear import SVDLinear
+from tqdm import tqdm
 
 
-def binary_search_truncation_rank(
-    model, sensitivity_dict, calib_loader, args
-):
+def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
     module_dict = {name: module for name, module in model.named_modules()}
     full_name_dict = {module: name for name, module in model.named_modules()}
     linear_info = {}
@@ -78,11 +77,12 @@ def binary_search_truncation_rank(
                 high = mid
             else:
                 low = mid + 1
-    
+
+    print(f"Searching finished, decomposing layers...")
     layers_min_ratio = {layername: 1 for layername in sensitivity_dict.keys()}
     for layername, ratio, ppl in sorted_sensitive_list[mid:]:
         layers_min_ratio[layername] = min(layers_min_ratio[layername], ratio)
-    for layername, ratio in layers_min_ratio.items():
+    for layername, ratio in tqdm(layers_min_ratio.items()):
         # set ratio
         raw_linear = module_dict[layername]
         info = linear_info[raw_linear]

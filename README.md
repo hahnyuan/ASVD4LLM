@@ -13,6 +13,7 @@ For more details, please read our paper.
 Some of the decomposed models are uploaded to huggingface hub. You can directly download and use them using the following code:
 
 ```python3
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 model_id = "hahnyuan/opt-125m-asvd90"
 

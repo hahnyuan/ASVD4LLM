@@ -1,6 +1,7 @@
 datasets
-transformers
+transformers==4.35.0
 torch
 lm_eval
-accelerate
-optimum
+accelerate==0.25.0
+optimum==1.15.0
+tqdm
