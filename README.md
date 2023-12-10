@@ -8,7 +8,7 @@ For more details, please read our paper.
 - python>=3.10
 - pip install -r requirements.txt
 
-# Direct use
+# Direct usage
 
 Some of the decomposed models are uploaded to huggingface hub. You can directly download and use them using the following code:
 
@@ -54,7 +54,7 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 ```
 
-# Usage
+# Run ASVD
 
 You can use the following command to run the ASVD. This will take several hours to generate the sensitivity of each layer. The sensitivity will be saved in the cache file. 
 The time will be reduced to several minutes if you use the cache file.
@@ -107,6 +107,59 @@ You can use the cache file to omit the calibration process. The cache file can b
 git clone https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache cache
 ```
 Or download the cache file from [here](https://huggingface.co/hahnyuan/ASVD4LLM_sensitivity_cache/tree/main) yourself. And place the cache file in the `cache` folder.
+
+## Making huggingface repository
+
+You can use the following command to make a huggingface repository for your ASVD model. 
+
+```
+usage: huggingface_repos/build_asvd_repo.py [-h] [--model_id MODEL_ID] [--ppl_target PPL_TARGET] [--param_ratio_target PARAM_RATIO_TARGET] [--act_aware]
+                          [--alpha ALPHA] [--n_calib_samples N_CALIB_SAMPLES] [--calib_dataset {wikitext2,c4,ptb}]
+                          [--scaling_method {abs_mean,abs_max,fisher,fisher_abs_mean}] [--sensitivity_metric {ppl,stable_rank}] [--use_cache]
+                          [--weight_quant {none,rtn_int8,rtn_int6}] [--eval_mmlu] [--sigma_fuse {U,V,UV}] [--push]
+
+options:
+  -h, --help            show this help message and exit
+  --model_id MODEL_ID   Pretrained model ID
+  --ppl_target PPL_TARGET
+                        target ppl
+  --param_ratio_target PARAM_RATIO_TARGET
+                        target param ratio
+  --act_aware           use act aware svd (ASVD)
+  --alpha ALPHA         hyper-parameter alpha for ASVD
+  --n_calib_samples N_CALIB_SAMPLES
+                        number of samples used for calibration
+  --calib_dataset {wikitext2,c4,ptb}
+                        calibration dataset
+  --scaling_method {abs_mean,abs_max,fisher,fisher_abs_mean}
+                        scaling method
+  --sensitivity_metric {ppl,stable_rank}
+                        search metric
+  --use_cache           use cached calibration results
+  --weight_quant {none,rtn_int8,rtn_int6}
+                        weight quantization method
+  --eval_mmlu           evaluate mmlu
+  --sigma_fuse {U,V,UV}
+                        sigma fuse method
+  --push                push to hub
+```
+
+Examples:
+```
+CUDA_VISIBLE_DEVICES='0' python huggingface_repos/build_asvd_repo.py --model_id="facebook/opt-125m" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+```
+
+This will generate a huggingface repository in the `huggingface_repos` folder. You can use this repository directly:
+```python3
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+model_id = "huggingface_repos/opt-125m-asvd90"
+
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
+)
+```
 
 # Citation
 
