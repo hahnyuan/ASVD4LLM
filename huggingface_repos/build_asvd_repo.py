@@ -94,14 +94,15 @@ def main(args):
     print("Done building huggingface model")
     del model
     del tokenizer
-    # load
-    hub_name = model_id.split("/")[-1] + f"-asvd{int(args.param_ratio_target*100)}"
-    tokenizer = AutoTokenizer.from_pretrained(save_path, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        save_path, device_map="cpu", torch_dtype=torch.float16, trust_remote_code=True
-    )
-    tokenizer.push_to_hub(hub_name)
-    model.push_to_hub(hub_name)
+    if not args.no_push:
+        # load
+        hub_name = model_id.split("/")[-1] + f"-asvd{int(args.param_ratio_target*100)}"
+        tokenizer = AutoTokenizer.from_pretrained(save_path, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            save_path, device_map="cpu", torch_dtype=torch.float16, trust_remote_code=True
+        )
+        tokenizer.push_to_hub(hub_name)
+        model.push_to_hub(hub_name)
 
 
 if __name__ == "__main__":
@@ -185,6 +186,11 @@ if __name__ == "__main__":
         default="UV",
         help="sigma fuse method",
         choices=["U", "V", "UV"],
+    )
+    parser.add_argument(
+        "--no_push",
+        action="store_true",
+        help="do not push to hub",
     )
     args = parser.parse_args()
 

@@ -8,7 +8,6 @@ from act_aware_utils import calib_input_distribution, calib_fisher_info
 from sensitivity import calib_sensitivity_ppl, calib_sensitivity_stable_rank
 from quantization import rtn_quant_sequential
 from binary_search import binary_search_truncation_rank
-from bitsandbytes import get_bitsandbytes
 
 
 def main(args):
