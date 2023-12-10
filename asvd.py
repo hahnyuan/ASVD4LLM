@@ -1,17 +1,14 @@
 import argparse
 import torch
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    OPTForCausalLM
-)
+from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM
 from transformers.models.opt.configuration_opt import OPTConfig
 from evaluate import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info
-from sensitivity import calib_sensitivity_ppl,calib_sensitivity_stable_rank
+from sensitivity import calib_sensitivity_ppl, calib_sensitivity_stable_rank
 from quantization import rtn_quant_sequential
 from binary_search import binary_search_truncation_rank
+from bitsandbytes import get_bitsandbytes
 
 
 def main(args):
@@ -35,13 +32,15 @@ def main(args):
         calib_input_distribution(
             model, calib_loader, args.scaling_method, args.use_cache
         )
-    if args.sensitivity_metric=="ppl":
+    if args.sensitivity_metric == "ppl":
         sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
-    elif args.sensitivity_metric=="stable_rank":
-        sensitivity = calib_sensitivity_stable_rank(model, calib_loader, args, args.use_cache)
+    elif args.sensitivity_metric == "stable_rank":
+        sensitivity = calib_sensitivity_stable_rank(
+            model, calib_loader, args, args.use_cache
+        )
 
     # search best truncation rank for each layer
-    
+
     binary_search_truncation_rank(model, sensitivity, calib_loader, args)
 
     # quantization

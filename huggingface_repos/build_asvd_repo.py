@@ -61,7 +61,7 @@ def main(args):
         + f"-asvd{int(args.param_ratio_target*100)}"
     )
     tokenizer.save_pretrained(save_path)
-    model.save_pretrained(save_path, safetensors=False)
+    model.save_pretrained(save_path)
     config = model.config.to_dict()
     config["truncation_ranks"] = {}
     for name, module in model.named_modules():

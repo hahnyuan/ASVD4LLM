@@ -48,6 +48,8 @@ model = AutoModelForCausalLM.from_pretrained(
 You can use the following command to run the ASVD. This will take several hours to generate the sensitivity of each layer. The sensitivity will be saved in the cache file. 
 The time will be reduced to several minutes if you use the cache file.
 
+NOTE: It is imperative to curate specific calibration datasets tailored for chat models, such as Llama-2-7b-chat-hf. Failure to do so results in suboptimal performance. As different chat models takes different input format, we did not provide the calibration dataset for chat models. You can write your own code in the function `get_calib_data` of `datautils.py` to generate the calibration dataset for chat models.
+
 ```
 usage: asvd.py [-h] [--model_id MODEL_ID] [--ppl_target PPL_TARGET] [--param_ratio_target PARAM_RATIO_TARGET] [--act_aware] [--alpha ALPHA] [--n_calib_samples N_CALIB_SAMPLES] [--calib_dataset {wikitext2,c4,ptb}]
                [--scaling_method {abs_mean,abs_max,fisher}] [--use_cache]
