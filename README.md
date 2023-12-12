@@ -2,7 +2,7 @@
 
 This work explores a novel paradigm for reducing the memory footprint of LLMs to facilitate their wider adoption in various computing environments. We delve into the challenges of traditional low-rank decomposition methods in LLM compression, notably their dependency on extensive training data and computational resources. Addressing these limitations, we propose a training-free approach, including an innovative technique, Activation-aware Singular Value Decomposition (ASVD). ASVD effectively manages weight matrix outliers by adjusting values based on the activation distribution, improving decomposition accuracy and efficiency. Our method also addresses the varying sensitivity of different LLM layers to decomposition, with an iterative calibration process for optimal layer-specific decomposition. Experiments demonstrate that ASVD can compress network by 10\%-20\% without losing reasoning capacities. Additionally, it seamlessly integrates with quantization, showcasing its compatibility.
 
-For more details, please read our paper.
+For more details, please read our paper [paper](https://arxiv.org/abs/2312.05821).
 
 # Requirement
 - python>=3.10
@@ -164,3 +164,14 @@ model = AutoModelForCausalLM.from_pretrained(
 # Citation
 
 Please cite our paper if you use ASVD.
+
+```
+@misc{yuan2023asvd,
+      title={ASVD: Activation-aware Singular Value Decomposition for Compressing Large Language Models}, 
+      author={Zhihang Yuan and Yuzhang Shang and Yue Song and Qiang Wu and Yan Yan and Guangyu Sun},
+      year={2023},
+      eprint={2312.05821},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
+```
