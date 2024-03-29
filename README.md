@@ -92,6 +92,8 @@ CUDA_VISIBLE_DEVICES='0' python asvd.py --model_id="facebook/opt-125m" --act_awa
 
 CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="facebook/opt-125m" --act_aware --alpha 1 --n_calib_samples 16 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
+CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="facebook/opt-6.7b" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+
 CUDA_VISIBLE_DEVICES='2' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
 CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-13b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.95 --use_cache --eval_mmlu

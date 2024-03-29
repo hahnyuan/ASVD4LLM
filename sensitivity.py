@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from modules.svd_linear import SVDLinear
-from evaluate import evaluate_model, evaluate_perplexity
+from evaluate_utils import evaluate_model, evaluate_perplexity
 from tqdm import tqdm
 import numpy as np
 

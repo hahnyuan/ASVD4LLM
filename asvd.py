@@ -2,18 +2,26 @@ import argparse
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM
 from transformers.models.opt.configuration_opt import OPTConfig
-from evaluate import evaluate_model
+from evaluate_utils import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info
 from sensitivity import calib_sensitivity_ppl, calib_sensitivity_stable_rank
 from quantization import rtn_quant_sequential
 from binary_search import binary_search_truncation_rank
+import numpy as np
+
+
 
 
 def main(args):
-    model_id = args.model_id
+    # setting random seed of numpy and torch
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
 
     # Load model
+    model_id = args.model_id
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -147,6 +155,12 @@ if __name__ == "__main__":
         default="UV",
         help="sigma fuse method",
         choices=["U", "V", "UV"],
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=233,
+        help="random seed, which can significantly affect the calibration results",
     )
     args = parser.parse_args()
 

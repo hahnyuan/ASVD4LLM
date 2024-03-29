@@ -113,3 +113,55 @@ class SVDLinear(nn.Module):
         y = self.BLinear(inp)
         y = self.ALinear(y)
         return y
+
+class GradSVDLinear(nn.Module):
+    def __init__(self, weight,scale, bias,rank) -> None:
+        super().__init__()
+        self.weight=weight
+        self.scale=nn.Parameter(scale)
+        self.bias=bias
+        self.rank=rank
+        
+    @staticmethod
+    def from_linear(
+        linear: nn.Linear,
+        param_ratio: float,
+        act_aware=False,
+        ic_split=1,
+        oc_split=1,
+        alpha=1,
+        sigma_fuse="UV"
+    ):
+        if param_ratio >= 1:
+            return linear
+        n_params = linear.weight.numel()
+        compressed_params = int(n_params * param_ratio)
+        assert ic_split == 1 or oc_split == 1
+        rank = compressed_params // (linear.in_features + linear.out_features)
+        # print("rank", rank)
+        w = linear.weight.data.float()
+        if act_aware:
+            scaling_diag_matrix = 1  # avoid zero division
+            if hasattr(linear, "scaling_diag_matrix"):
+                # print("WARNING: scaling_diag_matrix is used")
+                scaling_diag_matrix *= linear.scaling_diag_matrix**alpha
+                # scaling_diag_matrix *= linear.scaling_diag_matrix**0.5
+            if hasattr(linear, "fisher_info"):
+                scaling_diag_matrix *= linear.fisher_info**alpha
+                # scaling_diag_matrix *= linear.fisher_info**1
+            # if not (scaling_diag_matrix == scaling_diag_matrix).all():
+            #     breakpoint()
+            scaling_diag_matrix += 1e-6  # avoid zero division
+            
+        if linear.bias is not None:
+            bias = linear.bias.data
+        else:
+            bias = None
+        return GradSVDLinear(w,scaling_diag_matrix,bias,rank)
+
+    def forward(self, inp):
+        w=self.weight*self.scale.view(1, -1)
+        U, S, V = torch.svd_lowrank(w, q=self.rank)
+        new_w=U.mul(S).mm(V.t())
+        y=F.linear(inp,new_w,self.bias)
+        return y
