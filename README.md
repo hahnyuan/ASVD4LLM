@@ -90,6 +90,7 @@ Examples:
 ```
 CUDA_VISIBLE_DEVICES='0' python asvd.py --model_id="facebook/opt-125m" --act_aware --alpha 0.5 --n_calib_samples 16 --scaling_method abs_mean --ppl_target 40 --use_cache
 
+
 CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="facebook/opt-125m" --act_aware --alpha 1 --n_calib_samples 16 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
 CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="facebook/opt-6.7b" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
@@ -98,9 +99,9 @@ CUDA_VISIBLE_DEVICES='2' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --
 
 CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-13b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.95 --use_cache --eval_mmlu
 
-CUDA_VISIBLE_DEVICES='0' python asvd.py --model_id="meta-llama/Llama-2-7b-chat-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="meta-llama/Llama-2-7b-chat-hf" --calib_dataset alpaca --act_aware --alpha 0.5 --n_calib_samples 128 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
-CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="meta-llama/Llama-2-13b-chat-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
+CUDA_VISIBLE_DEVICES='2' python asvd.py --model_id="meta-llama/Llama-2-13b-chat-hf" --calib_dataset alpaca --act_aware --alpha 0.5 --n_calib_samples 128 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
 
 ```
 

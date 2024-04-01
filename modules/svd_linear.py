@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-
 class SVDLinear(nn.Module):
     def __init__(self, U, S, V, bias=None,sigma_fuse='UV') -> None:
         super().__init__()
@@ -106,7 +105,8 @@ class SVDLinear(nn.Module):
 
         assert len(Us) == len(Ss) == len(Vs) == 1
         new_linear = SVDLinear(Us[0], Ss[0], Vs[0], bias,sigma_fuse)
-        return new_linear.to(linear.weight.dtype)
+        new_linear.to(linear.weight.dtype)
+        return new_linear
 
     def forward(self, inp):
         # compute USV^Tx + b

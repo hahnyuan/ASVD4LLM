@@ -28,8 +28,8 @@ def main(args):
         model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
     )
 
-    if "llama" in model_id or "opt" in model_id:
-        model = model.to_bettertransformer()
+    # if "llama" in model_id or "opt" in model_id:
+    #     model = model.to_bettertransformer()
 
     # sensitivity calibration
     calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, 256)
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         "--calib_dataset",
         type=str,
         default="wikitext2",
-        choices=["wikitext2", "c4", "ptb"],
+        choices=["wikitext2", "c4", "ptb", "alpaca"],
         help="calibration dataset",
     )
     parser.add_argument(

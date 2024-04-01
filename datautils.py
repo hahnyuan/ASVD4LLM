@@ -3,10 +3,13 @@ import numpy as np
 import torch
 from datasets import load_dataset
 import random
+import io
+import json
 
 """
 doc https://huggingface.co/docs/datasets/loading
 doc https://huggingface.co/docs/datasets/process
+doc https://huggingface.co/blog/llama2#how-to-prompt-llama-2
 """
 
 
@@ -80,6 +83,25 @@ def get_qat_dataset(name, tokenizer, data_percent):
     return data
 
 
+llama_chat_format="""<s>[INST] <<SYS>>
+"Below is an instruction that describes a task. Write a response that appropriately completes the request."
+<</SYS>>
+
+{{ instruction }} [/INST] {{ response }} </s>
+"""
+
+def _make_r_io_base(f, mode: str):
+    if not isinstance(f, io.IOBase):
+        f = open(f, mode=mode)
+    return f
+
+def jload(f, mode="r"):
+    """Load a .json file into a dictionary."""
+    f = _make_r_io_base(f, mode)
+    jdict = json.load(f)
+    f.close()
+    return jdict
+
 def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     print(f" get_ptq_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
     cache_file = (
@@ -101,6 +123,20 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     elif name == "wikitext2":
         traindata = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
         tot_text = "\n\n".join(traindata["text"])
+    elif name == "alpaca":
+        # this is for chat models
+        data_path="data/alpaca_data.json"
+        list_data_dict = jload(data_path)
+        traindataset =[]
+        selected_data_dict=random.sample(list_data_dict, nsamples)
+        for example in selected_data_dict:
+            if example.get("input", "") == "":
+                s=llama_chat_format.format(instruction=example["instruction"], response=example["output"])
+                trainenc=tokenizer(s, return_tensors="pt")
+                inp=trainenc.input_ids[:, :seqlen]
+                attention_mask = torch.ones_like(inp)
+                traindataset.append({"input_ids": inp, "attention_mask": attention_mask})
+        return traindataset
     else:
         raise NotImplementedError
     print(f"tot_text={len(tot_text)}")
