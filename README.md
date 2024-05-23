@@ -99,10 +99,6 @@ CUDA_VISIBLE_DEVICES='2' python asvd.py --model_id="meta-llama/Llama-2-7b-hf" --
 
 CUDA_VISIBLE_DEVICES='3' python asvd.py --model_id="meta-llama/Llama-2-13b-hf" --act_aware --alpha 0.5 --n_calib_samples 32 --scaling_method abs_mean --param_ratio_target 0.95 --use_cache --eval_mmlu
 
-CUDA_VISIBLE_DEVICES='1' python asvd.py --model_id="meta-llama/Llama-2-7b-chat-hf" --calib_dataset alpaca --act_aware --alpha 0.5 --n_calib_samples 128 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
-
-CUDA_VISIBLE_DEVICES='2' python asvd.py --model_id="meta-llama/Llama-2-13b-chat-hf" --calib_dataset alpaca --act_aware --alpha 0.5 --n_calib_samples 128 --scaling_method abs_mean --param_ratio_target 0.9 --use_cache
-
 ```
 
 You can use the cache file to omit the calibration process. The cache file can be downloaded from huggingface-hub, by using the following command:

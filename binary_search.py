@@ -16,6 +16,7 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
+                
                 linear_info[raw_linear] = {
                     "father": submodule,
                     "name": name,
@@ -25,6 +26,10 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
                 modules.append(raw_linear)
 
     sensitivity_list = []
+    if args.compress_kv_cache:
+        # after compression, we have 2 matrices, so kv_cache reduction is the twice of weight reduction
+        args.param_ratio_target=args.kv_cache_ratio_target*2
+        sensitivity_dict={k:v for k,v in sensitivity_dict.items() if "k_proj" in k or "v_proj" in k}
     for layername, v in sensitivity_dict.items():
         for ratio, ppl in v.items():
             sensitivity_list.append((layername, ratio, ppl))

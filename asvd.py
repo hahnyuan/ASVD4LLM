@@ -1,5 +1,6 @@
 import argparse
 import torch
+import os
 from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM
 from transformers.models.opt.configuration_opt import OPTConfig
 from evaluate_utils import evaluate_model
@@ -67,6 +68,8 @@ def main(args):
         limit=-1,
     )
     print(result)
+    if not os.path.exists("output"):
+        os.makedirs("output")
     with open("output/result.txt", "a+") as f:
         f.write(f"{args}\n")
         f.write(f"{result}\n")
@@ -161,6 +164,17 @@ if __name__ == "__main__":
         type=int,
         default=233,
         help="random seed, which can significantly affect the calibration results",
+    )
+    parser.add_argument(
+        "--compress_kv_cache",
+        action="store_true",
+        help="compress kv cache by asvd for k_proj and v_proj",
+    )
+    parser.add_argument(
+        "--kv_cache_ratio_target",
+        type=float,
+        default=-1,
+        help="kv cache ratio",
     )
     args = parser.parse_args()
 
