@@ -84,9 +84,7 @@ class EvalLM(BaseLM):
             return self.model(inps)[0][:, :, :50257]
 
     def _model_generate(self, context, max_length, eos_token_id):
-        return self.model.generate(
-            context, max_length=max_length, eos_token_id=eos_token_id, do_sample=False
-        )
+        return self.model.generate(context, max_length=max_length, eos_token_id=eos_token_id, do_sample=False)
 
 
 @torch.no_grad()
@@ -101,8 +99,8 @@ def evaluate_perplexity(model, dataset, limit):
     for i in range(nsamples):
         if i == limit:
             break
-        input_ids = dataset[i:i+1,:-1].to(model.device)
-        labels = dataset[i:i+1,1:].contiguous()
+        input_ids = dataset[i : i + 1, :-1].to(model.device)
+        labels = dataset[i : i + 1, 1:].contiguous()
         logits = model(input_ids=input_ids)[0]
         shift_logits = logits[:, :, :]
         shift_labels = labels.to(model.device)
@@ -139,9 +137,7 @@ def evaluate_model(
     results = {}
     if eval_ppl:
         for dataset in eval_ppl.split(","):
-            cache_testloader = (
-                f"/tmp/{dataset}_testloader_{model_name.replace('/', '_')}_all.cache"
-            )
+            cache_testloader = f"/tmp/{dataset}_testloader_{model_name.replace('/', '_')}_all.cache"
             if os.path.exists(cache_testloader):
                 testloader = torch.load(cache_testloader)
                 # print(f"load calibration from {cache_testloader}")
@@ -157,16 +153,12 @@ def evaluate_model(
             nlls = []
 
             for i in tqdm(range(nsamples)):
-                batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(
-                    lm.device
-                )
+                batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(lm.device)
                 outputs = lm.model.model(batch)
                 hidden_states = outputs[0]  # .to(lm.model.lm_head.weight.device)
                 logits = lm.model.lm_head(hidden_states)  # .contiguous()
                 shift_logits = logits[:, :-1, :]  # .contiguous()
-                shift_labels = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)][
-                    :, 1:
-                ].to(lm.device)
+                shift_labels = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)][:, 1:].to(lm.device)
                 loss_fct = nn.CrossEntropyLoss()
                 loss = loss_fct(
                     shift_logits.view(-1, shift_logits.size(-1)),
@@ -188,11 +180,22 @@ def evaluate_model(
             ppl = torch.exp(torch.stack(nlls).sum() / (len(nlls) * lm.seqlen))
             print(dataset, ppl.item())
             lm.model.config.use_cache = use_cache
-            # pprint(model)
             results[dataset] = ppl.item()
-    if tasks == "mmlu":
+    if tasks == "longbench":
+        from tools.eval_longbench import eval_longbench, full_longeval_datasets, small_longeval_datasets
+
+        longbench_results = eval_longbench(model, tokenizer, model_name, datasets=full_longeval_datasets)
+        results.update(longbench_results)
+        tasks=""
+    elif tasks == "small_longbench":
+        from tools.eval_longbench import eval_longbench, full_longeval_datasets, small_longeval_datasets
+
+        longbench_results = eval_longbench(model, tokenizer, model_name, datasets=small_longeval_datasets)
+        results.update(longbench_results)
+        tasks=""
+    elif tasks == "mmlu":
         tasks = "hendrycksTest-abstract_algebra,hendrycksTest-anatomy,hendrycksTest-astronomy,hendrycksTest-business_ethics,hendrycksTest-clinical_knowledge,hendrycksTest-college_biology,hendrycksTest-college_chemistry,hendrycksTest-college_computer_science,hendrycksTest-college_mathematics,hendrycksTest-college_medicine,hendrycksTest-college_physics,hendrycksTest-computer_security,hendrycksTest-conceptual_physics,hendrycksTest-econometrics,hendrycksTest-electrical_engineering,hendrycksTest-elementary_mathematics,hendrycksTest-formal_logic,hendrycksTest-global_facts,hendrycksTest-high_school_biology,hendrycksTest-high_school_chemistry,hendrycksTest-high_school_computer_science,hendrycksTest-high_school_european_history,hendrycksTest-high_school_geography,hendrycksTest-high_school_government_and_politics,hendrycksTest-high_school_macroeconomics,hendrycksTest-high_school_mathematics,hendrycksTest-high_school_microeconomics,hendrycksTest-high_school_physics,hendrycksTest-high_school_psychology,hendrycksTest-high_school_statistics,hendrycksTest-high_school_us_history,hendrycksTest-high_school_world_history,hendrycksTest-human_aging,hendrycksTest-human_sexuality,hendrycksTest-international_law,hendrycksTest-jurisprudence,hendrycksTest-logical_fallacies,hendrycksTest-machine_learning,hendrycksTest-management,hendrycksTest-marketing,hendrycksTest-medical_genetics,hendrycksTest-miscellaneous,hendrycksTest-moral_disputes,hendrycksTest-moral_scenarios,hendrycksTest-nutrition,hendrycksTest-philosophy,hendrycksTest-prehistory,hendrycksTest-professional_accounting,hendrycksTest-professional_law,hendrycksTest-professional_medicine,hendrycksTest-professional_psychology,hendrycksTest-public_relations,hendrycksTest-security_studies,hendrycksTest-sociology,hendrycksTest-us_foreign_policy,hendrycksTest-virology,hendrycksTest-world_religions"
-    if tasks == "llmqat":
+    elif tasks == "llmqat":
         # tasks = "boolq,piqa,hellaswag,winogrande,arc_easy,arc_challenge,openbookqa"
         tasks = "lambada_openai,openbookqa"
     if tasks != "":
@@ -205,9 +208,7 @@ def evaluate_model(
             no_cache=True,
         )
         t_results = t_results["results"]
-        acc_list = [
-            t_results[key]["acc"] for key in t_results.keys() if "acc" in t_results[key]
-        ]
+        acc_list = [t_results[key]["acc"] for key in t_results.keys() if "acc" in t_results[key]]
         t_results["mean"] = sum(acc_list) / len(acc_list)
         results.update(t_results)
         print(results)
