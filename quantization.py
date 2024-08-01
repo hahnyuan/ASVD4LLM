@@ -10,7 +10,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-DEBUG=False
+DEBUG = False
+
 
 def quantize(x, scale, zero, maxq):
     if maxq < 0:
@@ -141,17 +142,15 @@ class Quantizer(nn.Module):
     def ready(self):
         return torch.all(self.scale != 0)
 
+
 def find_layers(module, layers=[nn.Conv2d, nn.Linear], name=""):
     if type(module) in layers:
         return {name: module}
     res = {}
     for name1, child in module.named_children():
-        res.update(
-            find_layers(
-                child, layers=layers, name=name + "." + name1 if name != "" else name1
-            )
-        )
+        res.update(find_layers(child, layers=layers, name=name + "." + name1 if name != "" else name1))
     return res
+
 
 @torch.no_grad()
 def rtn_quant_sequential(model, wbits):
@@ -166,13 +165,31 @@ def rtn_quant_sequential(model, wbits):
         subset = find_layers(layer)
         for name in subset:
             quantizer = Quantizer()
-            quantizer.configure(
-                wbits, perchannel=True, sym=False, mse=False
-            )
+            quantizer.configure(wbits, perchannel=True, sym=False, mse=False)
             quantizer.find_params(subset[name].weight.data.float(), weight=True)
-            wq=quantizer.quantize(subset[name].weight.data.float())
+            wq = quantizer.quantize(subset[name].weight.data.float())
             subset[name].weight.data = wq.to(subset[name].weight.data.dtype)
             print(f"Quantizing {name} finished")
         del layer
         torch.cuda.empty_cache()
-    
+
+
+def awq_quant_sequential(model, wbits):
+    print("Starting ...")
+
+    if "opt" in model.config._name_or_path:
+        layers = model.model.decoder.layers
+    elif "llama" in model.config._name_or_path:
+        layers = model.model.layers
+    for i in range(len(layers)):
+        layer = layers[i].to(model.device)
+        subset = find_layers(layer)
+        for name in subset:
+            quantizer = Quantizer()
+            quantizer.configure(wbits, perchannel=True, sym=True, mse=False)
+            quantizer.find_params(subset[name].weight.data.float(), weight=True)
+            wq = quantizer.quantize(subset[name].weight.data.float())
+            subset[name].weight.data = wq.to(subset[name].weight.data.dtype)
+            print(f"Quantizing {name} finished")
+        del layer
+        torch.cuda.empty_cache()

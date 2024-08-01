@@ -51,6 +51,8 @@ def main(args):
             rtn_quant_sequential(model, 8)
         elif args.weight_quant == "rtn_int6":
             rtn_quant_sequential(model, 6)
+        elif args.weight_quant == "awq_int8":
+            awq_quant_sequential(model, 8)
 
     # evaluate
     result = evaluate_model(
@@ -58,7 +60,7 @@ def main(args):
         tokenizer,
         args.model_id,
         "mmlu" if args.eval_mmlu else args.eval_tasks,
-        eval_ppl="wikitext2,ptb",
+        eval_ppl=args.eval_ppl,
         limit=-1,
     )
     print(result)
@@ -145,6 +147,11 @@ if __name__ == "__main__":
         "--eval_mmlu",
         action="store_true",
         help="evaluate mmlu",
+    )
+    parser.add_argument(
+        "--eval_ppl",
+        default="wikitext2,ptb",
+        type=str,
     )
     parser.add_argument("--eval_tasks", type=str, default="")
     parser.add_argument(
