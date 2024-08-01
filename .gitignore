@@ -3,6 +3,7 @@ huggingface_repos
 plots
 cache
 build
+models
 dist
 opt175b
 *.txt

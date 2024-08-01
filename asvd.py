@@ -12,8 +12,6 @@ from binary_search import binary_search_truncation_rank
 import numpy as np
 
 
-
-
 def main(args):
     # setting random seed of numpy and torch
     np.random.seed(args.seed)
@@ -37,15 +35,11 @@ def main(args):
     if "fisher" in args.scaling_method:
         calib_fisher_info(model, calib_loader, args.use_cache)
     if "abs" in args.scaling_method:
-        calib_input_distribution(
-            model, calib_loader, args.scaling_method, args.use_cache
-        )
+        calib_input_distribution(model, calib_loader, args.scaling_method, args.use_cache)
     if args.sensitivity_metric == "ppl":
         sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
     elif args.sensitivity_metric == "stable_rank":
-        sensitivity = calib_sensitivity_stable_rank(
-            model, calib_loader, args, args.use_cache
-        )
+        sensitivity = calib_sensitivity_stable_rank(model, calib_loader, args, args.use_cache)
 
     # search best truncation rank for each layer
 
@@ -63,7 +57,7 @@ def main(args):
         model,
         tokenizer,
         args.model_id,
-        "mmlu" if args.eval_mmlu else "",
+        "mmlu" if args.eval_mmlu else args.eval_tasks,
         eval_ppl="wikitext2,ptb",
         limit=-1,
     )
@@ -152,6 +146,7 @@ if __name__ == "__main__":
         action="store_true",
         help="evaluate mmlu",
     )
+    parser.add_argument("--eval_tasks", type=str, default="")
     parser.add_argument(
         "--sigma_fuse",
         type=str,
