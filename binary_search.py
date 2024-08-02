@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from evaluate_utils import evaluate_model, evaluate_perplexity
-from modules.svd_linear import SVDLinear,GradSVDLinear
+from modules.svd_linear import SVDLinear, GradSVDLinear
 from tqdm import tqdm
 
 
@@ -16,7 +16,7 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
         for name, raw_linear in submodule.named_children():
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
-                
+
                 linear_info[raw_linear] = {
                     "father": submodule,
                     "name": name,
@@ -28,17 +28,24 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
     sensitivity_list = []
     if args.compress_kv_cache:
         # after compression, we have 2 matrices, so kv_cache reduction is the twice of weight reduction
-        args.param_ratio_target=args.kv_cache_ratio_target*2
-        sensitivity_dict={k:v for k,v in sensitivity_dict.items() if "k_proj" in k or "v_proj" in k}
+        param_ratio_target = args.kv_cache_ratio_target * 2
+        sensitivity_dict = {k: v for k, v in sensitivity_dict.items() if "k_proj" in k or "v_proj" in k}
+        assert args.ppl_target < 0, "ppl_target is not supported when compressing kv_cache"
+    else:
+        param_ratio_target = args.param_ratio_target
+
     for layername, v in sensitivity_dict.items():
         for ratio, ppl in v.items():
+            if not args.compress_kv_cache and ratio >= 1:
+                # we need to compress the weights, so parameter ratio should be less than 1
+                continue
             sensitivity_list.append((layername, ratio, ppl))
     sorted_sensitive_list = sorted(sensitivity_list, key=lambda x: -x[2])
 
     # binary search
     high = len(sorted_sensitive_list) - 1
     low = 0
-    assert args.ppl_target > 0 or args.param_ratio_target > 0
+    assert args.ppl_target > 0 or param_ratio_target > 0
 
     input_ids = torch.cat([_["input_ids"] for _ in calib_loader], 0)
     while low < high:
@@ -58,6 +65,7 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
                     alpha=args.alpha,
                     act_aware=args.act_aware,
                     sigma_fuse=args.sigma_fuse,
+                    rank_align=args.rank_align,
                 )
                 setattr(info["father"], info["name"], svd_linear)
                 tot_params += raw_linear.weight.numel()
@@ -78,7 +86,7 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
             param_ratio = compress_params / tot_params
             msg = f"low={low} mid={mid}, high={high}, param_ratio={param_ratio}({compress_params}/{tot_params})"
             print(msg)
-            if param_ratio > args.param_ratio_target:
+            if param_ratio > param_ratio_target:
                 high = mid
             else:
                 low = mid + 1
@@ -97,9 +105,9 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
             alpha=args.alpha,
             act_aware=args.act_aware,
             sigma_fuse=args.sigma_fuse,
+            rank_align=args.rank_align,
         )
         setattr(info["father"], info["name"], svd_linear)
-
 
 
 def binary_search_truncation_rank_optimize_scale(model, sensitivity_dict, calib_loader, args):

@@ -7,7 +7,7 @@ from evaluate_utils import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info
 from sensitivity import calib_sensitivity_ppl, calib_sensitivity_stable_rank
-from quantization import rtn_quant_sequential
+from quantization import rtn_quant_sequential, awq_quant_sequential
 from binary_search import binary_search_truncation_rank
 import numpy as np
 
@@ -52,7 +52,9 @@ def main(args):
         elif args.weight_quant == "rtn_int6":
             rtn_quant_sequential(model, 6)
         elif args.weight_quant == "awq_int8":
-            awq_quant_sequential(model, 8)
+            model = awq_quant_sequential(model, tokenizer, 8)
+        elif args.weight_quant == "awq_int4":
+            model = awq_quant_sequential(model, tokenizer, 4)
 
     # evaluate
     result = evaluate_model(
@@ -140,7 +142,7 @@ if __name__ == "__main__":
         "--weight_quant",
         type=str,
         default="none",
-        choices=["none", "rtn_int8", "rtn_int6"],
+        choices=["none", "rtn_int8", "rtn_int6", "awq_int8", "awq_int4"],
         help="weight quantization method",
     )
     parser.add_argument(
@@ -177,6 +179,12 @@ if __name__ == "__main__":
         type=float,
         default=-1,
         help="kv cache ratio",
+    )
+    parser.add_argument(
+        "--rank_align",
+        type=int,
+        default=1,
+        help="align rank in SVD",
     )
     args = parser.parse_args()
 

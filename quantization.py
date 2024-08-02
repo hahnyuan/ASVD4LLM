@@ -9,6 +9,7 @@ import transformers
 import numpy as np
 import torch
 import torch.nn as nn
+from modules.svd_linear import SVDLinear
 
 DEBUG = False
 
@@ -174,22 +175,110 @@ def rtn_quant_sequential(model, wbits):
         torch.cuda.empty_cache()
 
 
-def awq_quant_sequential(model, wbits):
-    print("Starting ...")
+from awq.models import LlamaAWQForCausalLM
 
-    if "opt" in model.config._name_or_path:
-        layers = model.model.decoder.layers
-    elif "llama" in model.config._name_or_path:
-        layers = model.model.layers
-    for i in range(len(layers)):
-        layer = layers[i].to(model.device)
-        subset = find_layers(layer)
-        for name in subset:
-            quantizer = Quantizer()
-            quantizer.configure(wbits, perchannel=True, sym=True, mse=False)
-            quantizer.find_params(subset[name].weight.data.float(), weight=True)
-            wq = quantizer.quantize(subset[name].weight.data.float())
-            subset[name].weight.data = wq.to(subset[name].weight.data.dtype)
-            print(f"Quantizing {name} finished")
-        del layer
-        torch.cuda.empty_cache()
+
+def awq_quant_sequential(model, tokenizer, wbits):
+    device = model.device
+
+    class ASVDLlamaAWQForCausalLM(LlamaAWQForCausalLM):
+        @staticmethod
+        def get_layers_for_scaling(module, input_feat, module_kwargs):
+            layers = []
+            # breakpoint()
+            input_names = []
+
+            def svdlinear_process(module, inp_name, module2inspect=None, kwargs=None):
+                module2inspect = None
+                kwargs = {}
+                if isinstance(module, SVDLinear):
+                    layers.append(
+                        dict(
+                            prev_op=module.BLinear,
+                            layers=[module.ALinear],
+                            inp=input_feat[inp_name + ".ALinear"],
+                            module2inspect=module2inspect,
+                            kwargs=kwargs,
+                        )
+                    )
+                    input_names.append(inp_name + ".BLinear")
+                    return module.BLinear
+
+                else:
+                    input_names.append(inp_name)
+                    return module
+
+            # attention input
+            layers.append(
+                dict(
+                    prev_op=module.input_layernorm,
+                    layers=[
+                        # svdlinear_process(module.self_attn.k_proj, "self_attn.k_proj", module.self_attn, module_kwargs),
+                        # svdlinear_process(module.self_attn.q_proj, "self_attn.q_proj", module.self_attn, module_kwargs),
+                        # svdlinear_process(module.self_attn.v_proj, "self_attn.v_proj", module.self_attn, module_kwargs),
+                        svdlinear_process(module.self_attn.k_proj, "self_attn.k_proj", module.self_attn, module_kwargs),
+                        svdlinear_process(module.self_attn.q_proj, "self_attn.q_proj", module.self_attn, module_kwargs),
+                        svdlinear_process(module.self_attn.v_proj, "self_attn.v_proj", module.self_attn, module_kwargs),
+                    ],
+                    inp=input_feat[input_names[-1]],
+                    module2inspect=module.self_attn,
+                    kwargs=module_kwargs,
+                )
+            )
+
+            # attention out
+            # Please refer to https://github.com/mit-han-lab/llm-awq/pull/67#issue-1850622696
+            # if module.self_attn.v_proj.weight.shape == module.self_attn.o_proj.weight.shape:
+            layers.append(
+                dict(
+                    prev_op=(
+                        module.self_attn.v_proj.ALinear
+                        if isinstance(module.self_attn.v_proj, SVDLinear)
+                        else module.self_attn.v_proj
+                    ),
+                    layers=[svdlinear_process(module.self_attn.o_proj, "self_attn.o_proj")],
+                    inp=input_feat[input_names[-1]],
+                )
+            )
+
+            # linear 1
+            layers.append(
+                dict(
+                    prev_op=module.post_attention_layernorm,
+                    layers=[
+                        svdlinear_process(module.mlp.gate_proj, "mlp.gate_proj", module.mlp),
+                        svdlinear_process(module.mlp.up_proj, "mlp.up_proj", module.mlp),
+                    ],
+                    inp=input_feat[input_names[-1]],
+                    module2inspect=module.mlp,
+                )
+            )
+
+            # linear 2
+            layers.append(
+                dict(
+                    prev_op=(
+                        module.mlp.up_proj.ALinear if isinstance(module.mlp.up_proj, SVDLinear) else module.mlp.up_proj
+                    ),
+                    layers=[svdlinear_process(module.mlp.down_proj, "mlp.down_proj")],
+                    inp=input_feat[input_names[-1]],
+                )
+            )
+
+            return layers
+
+    quant_config = {"zero_point": True, "q_group_size": 128, "w_bit": 4, "version": "GEMM"}
+
+    # Load model
+    qmodel = ASVDLlamaAWQForCausalLM(model, "llama", False, model.config, quant_config, None)
+
+    # Quantize
+    qmodel.quantize(tokenizer, quant_config=quant_config)
+    qmodel.to(device)
+    qmodel.device = device
+    qmodel.lm_head = lambda x: x
+
+    # If CUDA error, change q_linear=q_linear_module.from_linear to q_linear=linear_layer
+    # in awq/quantize/quantizer.py AwqQuantizer._apply_quant function
+
+    return qmodel
