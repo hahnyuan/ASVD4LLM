@@ -175,10 +175,9 @@ def rtn_quant_sequential(model, wbits):
         torch.cuda.empty_cache()
 
 
-from awq.models import LlamaAWQForCausalLM
-
-
 def awq_quant_sequential(model, tokenizer, wbits):
+    from awq.models import LlamaAWQForCausalLM
+
     device = model.device
 
     class ASVDLlamaAWQForCausalLM(LlamaAWQForCausalLM):
@@ -267,7 +266,7 @@ def awq_quant_sequential(model, tokenizer, wbits):
 
             return layers
 
-    quant_config = {"zero_point": True, "q_group_size": 128, "w_bit": 4, "version": "GEMM"}
+    quant_config = {"zero_point": True, "q_group_size": 128, "w_bit": wbits, "version": "GEMM"}
 
     # Load model
     qmodel = ASVDLlamaAWQForCausalLM(model, "llama", False, model.config, quant_config, None)

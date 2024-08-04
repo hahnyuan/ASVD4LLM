@@ -92,21 +92,27 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
                 low = mid + 1
 
     print(f"Searching finished, decomposing layers...")
-    layers_min_ratio = {layername: 1 for layername in sensitivity_dict.keys()}
+    layers_min_ratio = {layername: None for layername in sensitivity_dict.keys()}
     for layername, ratio, ppl in sorted_sensitive_list[mid:]:
-        layers_min_ratio[layername] = min(layers_min_ratio[layername], ratio)
+        if layers_min_ratio[layername] is None:
+            layers_min_ratio[layername] = ratio
+        else:
+            layers_min_ratio[layername] = min(layers_min_ratio[layername], ratio)
     for layername, ratio in tqdm(layers_min_ratio.items()):
         # set ratio
         raw_linear = module_dict[layername]
         info = linear_info[raw_linear]
-        svd_linear = SVDLinear.from_linear(
-            raw_linear,
-            param_ratio=ratio,
-            alpha=args.alpha,
-            act_aware=args.act_aware,
-            sigma_fuse=args.sigma_fuse,
-            rank_align=args.rank_align,
-        )
+        if ratio is None:
+            svd_linear = raw_linear
+        else:
+            svd_linear = SVDLinear.from_linear(
+                raw_linear,
+                param_ratio=ratio,
+                alpha=args.alpha,
+                act_aware=args.act_aware,
+                sigma_fuse=args.sigma_fuse,
+                rank_align=args.rank_align,
+            )
         setattr(info["father"], info["name"], svd_linear)
 
 
