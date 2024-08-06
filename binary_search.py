@@ -124,6 +124,7 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
                 sigma_fuse=args.sigma_fuse,
                 rank_align=args.rank_align,
             )
+            raw_linear.to('cpu')
         setattr(info["father"], info["name"], svd_linear)
     ed = time.time()
     print(f"decompose time: {ed-st}")

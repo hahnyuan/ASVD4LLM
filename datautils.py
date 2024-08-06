@@ -59,9 +59,7 @@ def get_redpajama_train(tokenizer, percent=10, seed=3, batch_size=128, max_lengt
         split = "train"
     dataset = load_dataset("togethercomputer/RedPajama-Data-1T-Sample", split=split)
 
-    processed_dataset = dataset.map(
-        tokenization, batched=True, batch_size=batch_size, num_proc=os.cpu_count()
-    )
+    processed_dataset = dataset.map(tokenization, batched=True, batch_size=batch_size, num_proc=os.cpu_count())
     return processed_dataset
 
 
@@ -83,17 +81,19 @@ def get_qat_dataset(name, tokenizer, data_percent):
     return data
 
 
-llama_chat_format="""<s>[INST] <<SYS>>
+llama_chat_format = """<s>[INST] <<SYS>>
 "Below is an instruction that describes a task. Write a response that appropriately completes the request."
 <</SYS>>
 
 {{ instruction }} [/INST] {{ response }} </s>
 """
 
+
 def _make_r_io_base(f, mode: str):
     if not isinstance(f, io.IOBase):
         f = open(f, mode=mode)
     return f
+
 
 def jload(f, mode="r"):
     """Load a .json file into a dictionary."""
@@ -102,11 +102,10 @@ def jload(f, mode="r"):
     f.close()
     return jdict
 
+
 def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     print(f" get_ptq_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
-    cache_file = (
-        f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"
-    )
+    cache_file = f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"
     if not os.path.exists("cache"):
         os.makedirs("cache")
     if os.path.exists(cache_file):
@@ -114,10 +113,7 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
         return traindataset
     if name == "c4":
         traindata = load_dataset(
-            "allenai/c4",
-            "allenai--c4",
-            data_files={"train": "en/c4-train.00000-of-01024.json.gz"},
-            split="train",
+            "allenai/c4", data_files={"train": "en/c4-train.00000-of-01024.json.gz"}, split="train"
         )
         tot_text = "\n\n".join(traindata["text"])
     elif name == "wikitext2":
@@ -125,15 +121,15 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
         tot_text = "\n\n".join(traindata["text"])
     elif name == "alpaca":
         # this is for chat models
-        data_path="data/alpaca_data.json"
+        data_path = "data/alpaca_data.json"
         list_data_dict = jload(data_path)
-        traindataset =[]
-        selected_data_dict=random.sample(list_data_dict, nsamples)
+        traindataset = []
+        selected_data_dict = random.sample(list_data_dict, nsamples)
         for example in selected_data_dict:
             if example.get("input", "") == "":
-                s=llama_chat_format.format(instruction=example["instruction"], response=example["output"])
-                trainenc=tokenizer(s, return_tensors="pt")
-                inp=trainenc.input_ids[:, :seqlen]
+                s = llama_chat_format.format(instruction=example["instruction"], response=example["output"])
+                trainenc = tokenizer(s, return_tensors="pt")
+                inp = trainenc.input_ids[:, :seqlen]
                 attention_mask = torch.ones_like(inp)
                 traindataset.append({"input_ids": inp, "attention_mask": attention_mask})
         return traindataset
