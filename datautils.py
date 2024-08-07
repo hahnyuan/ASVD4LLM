@@ -106,6 +106,7 @@ def jload(f, mode="r"):
 def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     print(f" get_ptq_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
     cache_file = f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"
+    print(f"cache_file={cache_file}")
     if not os.path.exists("cache"):
         os.makedirs("cache")
     if os.path.exists(cache_file):
@@ -119,6 +120,9 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     elif name == "wikitext2":
         traindata = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
         tot_text = "\n\n".join(traindata["text"])
+    elif name == "ptb":
+        traindata = load_dataset("ptb_text_only", "penn_treebank", split="train")
+        tot_text = "\n\n".join(traindata["sentence"])
     elif name == "alpaca":
         # this is for chat models
         data_path = "data/alpaca_data.json"
@@ -133,6 +137,9 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
                 attention_mask = torch.ones_like(inp)
                 traindataset.append({"input_ids": inp, "attention_mask": attention_mask})
         return traindataset
+    elif name == "selfgen":
+        raise NotImplementedError
+
     else:
         raise NotImplementedError
     print(f"tot_text={len(tot_text)}")
@@ -140,7 +147,10 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
     for _ in range(nsamples):
         i = random.randint(0, len(tot_text) - seqlen - 1)
         j = i + seqlen * 10
-        trainenc = tokenizer(tot_text[i:j], return_tensors="pt")
+        txt = tot_text[i:j]
+        ind = txt.find(".")
+        txt = txt[ind + 1 :].strip()
+        trainenc = tokenizer(txt, return_tensors="pt")
         inp = trainenc.input_ids[:, :seqlen]
         attention_mask = torch.ones_like(inp)
         traindataset.append({"input_ids": inp, "attention_mask": attention_mask})

@@ -31,7 +31,7 @@ def main(args):
     #     model = model.to_bettertransformer()
 
     # sensitivity calibration
-    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, 256)
+    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, args.n_calib_samples, seed=args.seed)
     if "fisher" in args.scaling_method:
         calib_fisher_info(model, calib_loader, args.use_cache)
     if "abs" in args.scaling_method:
@@ -116,7 +116,7 @@ if __name__ == "__main__":
         "--calib_dataset",
         type=str,
         default="wikitext2",
-        choices=["wikitext2", "c4", "ptb", "alpaca"],
+        choices=["wikitext2", "c4", "ptb", "alpaca", "selfgen"],
         help="calibration dataset",
     )
     parser.add_argument(

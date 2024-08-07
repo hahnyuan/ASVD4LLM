@@ -113,7 +113,7 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
         # set ratio
         raw_linear = module_dict[layername]
         info = linear_info[raw_linear]
-        if param_ratio is None:
+        if param_ratio == default_param_ratio:
             svd_linear = raw_linear
         else:
             svd_linear = SVDLinear.from_linear(
@@ -124,8 +124,9 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
                 sigma_fuse=args.sigma_fuse,
                 rank_align=args.rank_align,
             )
-            raw_linear.to('cpu')
+            raw_linear.to("cpu")
         setattr(info["father"], info["name"], svd_linear)
+        # print(f"decompose {info['full_name']} with ratio {param_ratio}")
     ed = time.time()
     print(f"decompose time: {ed-st}")
 
