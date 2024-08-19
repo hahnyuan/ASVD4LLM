@@ -159,11 +159,12 @@ def evaluate_model(
                 logits = lm.model.lm_head(hidden_states)  # .contiguous()
                 shift_logits = logits[:, :-1, :]  # .contiguous()
                 shift_labels = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)][:, 1:].to(lm.device)
-                loss_fct = nn.CrossEntropyLoss()
+                loss_fct = nn.CrossEntropyLoss(reduction="none")
                 loss = loss_fct(
                     shift_logits.view(-1, shift_logits.size(-1)),
                     shift_labels.view(-1),
                 )
+                loss=torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0).mean()
                 neg_log_likelihood = loss.float() * lm.seqlen
                 nlls.append(neg_log_likelihood)
                 if i == limit:
