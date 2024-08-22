@@ -1,7 +1,7 @@
 import argparse
 import torch
 import os
-from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM, LlamaTokenizer
 from transformers.models.opt.configuration_opt import OPTConfig
 from evaluate_utils import evaluate_model
 from datautils import get_calib_data
@@ -14,19 +14,36 @@ from modelutils import profile_svdllm_low_resource
 
 
 def main(args):
-    model_id = args.model_id
+    # setting random seed of numpy and torch
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
 
     # Load model
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    model_id = args.model_id
+    print(model_id)
+    if "opt" in model_id or "mistral" in model_id or "Qwen2" in model_id:
+        tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    else:
+        tokenizer = LlamaTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
     )
 
+    # if "llama" in model_id or "opt" in model_id:
+    #     model = model.to_bettertransformer()
+
     # sensitivity calibration
-    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, 256)
-    if args.whitening_profiling_path is not None:
-        profiling_mat = torch.load(args.whitening_profiling_path, map_location="cpu")
+    calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, args.n_calib_samples, seed=args.seed)
+    # if "fisher" in args.scaling_method:
+    #     calib_fisher_info(model, calib_loader, args.use_cache)
+    # if "abs" in args.scaling_method:
+    #     calib_input_distribution(model, calib_loader, args.scaling_method, args.use_cache)
+
+    if args.profiling_path is not None:
+        profiling_mat = torch.load(args.profiling_path, map_location="cpu")
     else:
         model.seqlen = 2048
         profiling_mat = profile_svdllm_low_resource(args.model_id, model, calib_loader, args.DEV)
@@ -51,6 +68,7 @@ def main(args):
                 # print(f"Profiling matrix found for {name}")
                 whitening_matrix = profiling_mat[i][name]
                 module.whitening_matrix = whitening_matrix
+
     if args.sensitivity_metric == "ppl":
         sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
     elif args.sensitivity_metric == "stable_rank":
@@ -99,11 +117,11 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--save_path",
+        "--profiling_path",
         type=str,
     )
     parser.add_argument(
-        "--whitening_profiling_path",
+        "--save_path",
         type=str,
     )
     parser.add_argument(
@@ -123,6 +141,7 @@ if __name__ == "__main__":
         action="store_true",
         help="use act aware svd (ASVD)",
     )
+
     parser.add_argument(
         "--alpha",
         type=float,
@@ -138,15 +157,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--calib_dataset",
         type=str,
-        default="wikitext2",
+        default="c4",
         choices=["wikitext2", "c4", "ptb", "alpaca", "selfgen"],
         help="calibration dataset",
     )
     parser.add_argument(
         "--scaling_method",
         type=str,
-        default="abs_mean",
-        choices=["abs_mean", "abs_max", "fisher", "fisher_abs_mean"],
+        default="whitening",
         help="scaling method",
     )
     parser.add_argument(
@@ -212,4 +230,5 @@ if __name__ == "__main__":
     parser.add_argument("--DEV", type=str, default="cuda", help="device")
     parser.add_argument("--model_seq_len", type=int, default=2048, help="the default sequence length of the LLM")
     args = parser.parse_args()
+
     main(args)
