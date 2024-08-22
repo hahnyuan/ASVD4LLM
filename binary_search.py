@@ -45,6 +45,8 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
             if not args.compress_kv_cache and param_ratio >= 1:
                 # we need to compress the weights, so parameter ratio should be less than 1
                 continue
+            if param_ratio < 0.4:
+                continue
             sensitivity_list.append((layername, param_ratio, ppl))
     sorted_sensitive_list = sorted(sensitivity_list, key=lambda x: -x[2])
 

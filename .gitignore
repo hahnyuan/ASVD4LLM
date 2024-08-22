@@ -36,3 +36,5 @@ cuda/build
 *.egg-info
 *.o
 .vscode
+
+.env.sh
