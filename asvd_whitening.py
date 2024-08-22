@@ -51,7 +51,6 @@ def main(args):
                 # print(f"Profiling matrix found for {name}")
                 whitening_matrix = profiling_mat[i][name]
                 module.whitening_matrix = whitening_matrix
-
     if args.sensitivity_metric == "ppl":
         sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
     elif args.sensitivity_metric == "stable_rank":

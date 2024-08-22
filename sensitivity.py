@@ -8,7 +8,7 @@ import numpy as np
 
 
 @torch.no_grad()
-def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True):
+def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True,lm_head=True):
     model_id = model.config._name_or_path
     cache_file = f"cache/{model_id.replace('/','_')}_sensitivity_{args.scaling_method}_{args.alpha}_{args.n_calib_samples}_{args.calib_dataset}.pt"
     if os.path.exists(cache_file) and use_cache:
@@ -22,6 +22,8 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True):
     while len(modules) > 0:
         submodule = modules.pop()
         for name, raw_linear in submodule.named_children():
+            if lm_head and "lm_head" in name:
+                continue
             if isinstance(raw_linear, nn.Linear):
                 full_name = full_name_dict[raw_linear]
                 linear_info[raw_linear] = {
@@ -42,6 +44,7 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True):
     pbar = tqdm(total=len(linear_info) * len(param_ratio_candidates))
     for raw_linear, info in linear_info.items():
         sensitivity_dict[info["full_name"]] = {}
+        raw_linear.is_calibration_stage = True
         for param_ratio in param_ratio_candidates:
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
@@ -56,6 +59,8 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True):
             sensitivity_dict[info["full_name"]][param_ratio] = ppl
             print(f"{info['full_name']} {param_ratio} {ppl}")
             pbar.update(1)
+        raw_linear.is_calibration_stage = False
+        raw_linear.cached_svd = None
         setattr(info["father"], info["name"], raw_linear)
     torch.save(sensitivity_dict, cache_file)
     return sensitivity_dict
