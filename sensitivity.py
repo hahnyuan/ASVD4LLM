@@ -127,6 +127,7 @@ def calib_sensitivity_ppl_greedy(model, calib_loader, args, use_cache=True,lm_he
     full_name_dict = {module: name for name, module in model.named_modules()}
     linear_info = {}
     modules = [model]
+    module_count = 0
     while len(modules) > 0:
         submodule = modules.pop()
         for name, raw_linear in submodule.named_children():
@@ -139,27 +140,29 @@ def calib_sensitivity_ppl_greedy(model, calib_loader, args, use_cache=True,lm_he
                     "name": name,
                     "full_name": full_name,
                 }
+                module_count += 1
             else:
                 modules.append(raw_linear)
 
     sensitivity_dict = {}
+    ratio_low = 0
+    ratio_high = 1
     if args.compress_kv_cache:
-        param_ratio_candidates = [0.1 * i for i in range(1, 20)]
-    else:
-        param_ratio_candidates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+        ratio_high = 2
+    ratio_mid = (ratio_high + ratio_low) // 2
     input_ids = torch.cat([_["input_ids"] for _ in calib_loader], 0)
     print(f"input_ids.shape={input_ids.shape}")
     pbar = tqdm(total=len(linear_info))
+    module_thres = args.greedy_thres / module_count
+    search_limit = 4
     for raw_linear, info in linear_info.items():
         sensitivity_dict[info["full_name"]] = {}
         raw_linear.is_calibration_stage = True
         init_ppl = evaluate_perplexity(model, input_ids, args.n_calib_samples)
-        for param_ratio in param_ratio_candidates:
-            if param_ratio == 1:
-                continue
+        for i in range(search_limit):
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
-                param_ratio=param_ratio,
+                param_ratio=ratio_mid,
                 alpha=args.alpha,
                 act_aware=True,
                 rank_align=args.rank_align,
@@ -167,11 +170,21 @@ def calib_sensitivity_ppl_greedy(model, calib_loader, args, use_cache=True,lm_he
             setattr(info["father"], info["name"], svd_linear)
 
             ppl = evaluate_perplexity(model, input_ids, args.n_calib_samples)
-            if ppl / init_ppl < (1 + args.greedy_thres):
-                sensitivity_dict[info["full_name"]] = (param_ratio, ppl)
-                print(f"{info['full_name']} {param_ratio} {ppl}")
-                break
+            # abs value
+            if ppl - init_ppl < module_thres:
+                ratio_high = ratio_mid
+            else:
+                ratio_low = ratio_mid
+            ratio_mid = (ratio_high + ratio_low) // 2
         pbar.update(1)
+        svd_linear = SVDLinear.from_linear(
+                raw_linear,
+                param_ratio=ratio_high,
+                alpha=args.alpha,
+                act_aware=True,
+                rank_align=args.rank_align,
+            )
+        setattr(info["father"], info["name"], svd_linear)
         # raw_linear.is_calibration_stage = False
         # raw_linear.cached_svd = None
         # setattr(info["father"], info["name"], raw_linear)
