@@ -26,44 +26,58 @@ def main(args):
     model = AutoModelForCausalLM.from_pretrained(
         model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
     )
-
-    # if "llama" in model_id or "opt" in model_id:
-    #     model = model.to_bettertransformer()
-
-    # sensitivity calibration
+    # generate transform_mat
     calib_loader = get_calib_data(args.calib_dataset, tokenizer, model_id, args.n_calib_samples, seed=args.seed)
-    # if "fisher" in args.scaling_method:
-    #     calib_fisher_info(model, calib_loader, args.use_cache)
-    # if "abs" in args.scaling_method:
-    #     calib_input_distribution(model, calib_loader, args.scaling_method, args.use_cache)
 
-    if args.cholesky_mat_cache is not None:
-        cholesky_mat = torch.load(args.cholesky_mat_cache, map_location="cpu")
+    cache_dir = f"cache/{args.model_id.replace('.', '_').replace('/', '_')}"
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    transform_mat_cache = (
+        f"{cache_dir}/{args.transform_mat_method}_{args.calib_dataset}_{args.n_calib_samples}_{args.seed}.pt"
+    )
+    if args.use_cache and os.path.exists(transform_mat_cache):
+        print(f"Loading transform matrix from CACHE: {transform_mat_cache}")
+        transform_mat = torch.load(transform_mat_cache, map_location="cpu")
     else:
         model.seqlen = 2048
-        cholesky_mat = layerwise_cholesky_decomposition(args.model_id, model, calib_loader, args.DEV)
-        save_path = f"cache/cholesky_{args.model_id.replace('/', '_').replace('-', '_')}_{args.calib_dataset}_{args.n_calib_samples}_{args.seed}.pt"
-        torch.save(cholesky_mat, save_path)
-    layers = model.model.layers
+        if "magnitude" in args.transform_mat_method:
+            # TODO: **alpha
+            raise NotImplementedError("alpha not set, is not implemented")
+            transform_mat = calib_input_distribution(model, calib_loader, args.transform_mat_method, args.use_cache)
+        elif "cholesky" in args.transform_mat_method:
+            transform_mat = layerwise_cholesky_decomposition(args.model_id, model, calib_loader, args.DEV)
+        torch.save(transform_mat, transform_mat_cache)
+    if "opt" in model_id:
+        layers = model.model.decoder.layers
+    else:
+        layers = model.model.layers
 
     for i in range(len(layers)):
         layer = layers[i]
         for name, module in layer.named_modules():
-            if name in cholesky_mat[i]:
+            if name in transform_mat[i]:
                 # print(f"Profiling matrix found for {name}")
-                whitening_matrix = cholesky_mat[i][name]
-                module.whitening_matrix = whitening_matrix
+                module.transform_mat = transform_mat[i][name]
+
+    # evaluate sensitivity for each linear layer
     model.to("cuda")
-    if args.sensitivity_metric == "ppl":
-        sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
-    elif args.sensitivity_metric == "stable_rank":
-        sensitivity = calib_sensitivity_stable_rank(model, calib_loader, args, args.use_cache)
+    sensitivity_cache = f"{cache_dir}/{args.transform_mat_method}_{args.sensitivity_metric}_{args.calib_dataset}_{args.n_calib_samples}_{args.seed}.pt"
+    if args.use_cache and os.path.exists(sensitivity_cache):
+        print(f"Loading sensitivity from CACHE: {sensitivity_cache}")
+        sensitivity = torch.load(sensitivity_cache, map_location="cpu")
+    else:
+        if args.sensitivity_metric == "ppl":
+            sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
+        # elif args.sensitivity_metric == "stable_rank":
+        #     sensitivity = calib_sensitivity_stable_rank(model, calib_loader, args, args.use_cache)
+        else:
+            raise NotImplementedError
+        torch.save(sensitivity, sensitivity_cache)
 
-    # search best truncation rank for each layer
-
+    # Sensitivity-based Truncation Rank Searching (STRS)
     binary_search_truncation_rank(model, sensitivity, calib_loader, args)
 
-    # quantization
+    # quantization (optional)
     if args.weight_quant != "none":
         if args.weight_quant == "rtn_int8":
             rtn_quant_sequential(model, 8)
@@ -74,7 +88,7 @@ def main(args):
         elif args.weight_quant == "awq_int4":
             model = awq_quant_sequential(model, tokenizer, 4)
 
-    # evaluate
+    # evaluate the compressed model
     result = evaluate_model(
         model,
         tokenizer,
@@ -90,8 +104,6 @@ def main(args):
         f.write(f"{args}\n")
         f.write(f"{result}\n")
 
-    # finished
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -100,14 +112,6 @@ if __name__ == "__main__":
         type=str,
         default="facebook/opt-1.3b",
         help="Pretrained model ID",
-    )
-    parser.add_argument(
-        "--cholesky_mat_cache",
-        type=str,
-    )
-    parser.add_argument(
-        "--save_path",
-        type=str,
     )
     parser.add_argument(
         "--ppl_target",
@@ -127,12 +131,6 @@ if __name__ == "__main__":
         help="use act aware svd (ASVD)",
     )
     parser.add_argument(
-        "--alpha",
-        type=float,
-        default=0.5,
-        help="alpha for ASVD",
-    )
-    parser.add_argument(
         "--n_calib_samples",
         type=int,
         default=32,
@@ -146,10 +144,11 @@ if __name__ == "__main__":
         help="calibration dataset",
     )
     parser.add_argument(
-        "--scaling_method",
+        "--transform_mat_method",
         type=str,
-        default="whitening",
-        help="scaling method",
+        default="cholesky",
+        choices=["magnitude_alpha0.5", "cholesky"],
+        help="transform matrix setting method",
     )
     parser.add_argument(
         "--sensitivity_metric",
@@ -160,11 +159,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use_cache",
-        action="store_true",
-        help="use cached calibration results",
-    )
-    parser.add_argument(
-        "--use_act_cache",
         action="store_true",
         help="use cached calibration results",
     )

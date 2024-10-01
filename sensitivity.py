@@ -9,13 +9,7 @@ import numpy as np
 
 @torch.no_grad()
 def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True, lm_head=True):
-    model_id = model.config._name_or_path
-    cache_file = f"cache/{model_id.replace('/','_')}_sensitivity_{args.scaling_method}_{args.alpha}_{args.n_calib_samples}_{args.calib_dataset}.pt"
-    if os.path.exists(cache_file) and use_cache:
-        sensitivity_dict = torch.load(cache_file, map_location="cpu")
-        return sensitivity_dict
     model.eval()
-
     full_name_dict = {module: name for name, module in model.named_modules()}
     linear_info = {}
     modules = [model]
@@ -49,7 +43,6 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True, lm_head=Tru
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
                 param_ratio=param_ratio,
-                alpha=args.alpha,
                 act_aware=True,
                 rank_align=args.rank_align,
             )
@@ -62,7 +55,6 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True, lm_head=Tru
         raw_linear.is_calibration_stage = False
         raw_linear.cached_svd = None
         setattr(info["father"], info["name"], raw_linear)
-    torch.save(sensitivity_dict, cache_file)
     return sensitivity_dict
 
 

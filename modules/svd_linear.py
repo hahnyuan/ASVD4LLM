@@ -30,36 +30,34 @@ class SVDLinear(nn.Module):
         act_aware=False,
         ic_split=1,
         oc_split=1,
-        alpha=1,
         sigma_fuse="UV",
         rank_align=1,
     ):
-        if hasattr(linear, "whitening_matrix"):
+        if hasattr(linear, "transform_mat"):
             W = linear.weight.data
-            # dtype = W.dtype
 
-            num_s_after_trunc = int(W.shape[0] * W.shape[1] * param_ratio / (W.shape[0] + W.shape[1]))
+            truncated_rank = int(W.shape[0] * W.shape[1] * param_ratio / (W.shape[0] + W.shape[1]))
 
             if getattr(linear, "is_calibration_stage", False) and hasattr(linear, "cached_svd"):
-                U, S, VT, scaling_matrix_inv = linear.cached_svd
+                U, S, VT, transform_mat_inv = linear.cached_svd
             else:
                 W = W.float()
-                scaling_diag_matrix = linear.whitening_matrix.to(W.device)
+                transform_mat = linear.transform_mat.to(W.device)
                 try:
-                    scaling_matrix_inv = torch.linalg.inv(scaling_diag_matrix)
+                    transform_mat_inv = torch.linalg.inv(transform_mat)
                 except Exception as e:
                     print("Warning: scaling_diag_matrix is not full rank!")
-                    scaling_diag_matrix += 1e-6 * torch.eye(scaling_diag_matrix.shape[0], device=W.device)
-                    scaling_matrix_inv = torch.linalg.inv(scaling_diag_matrix)
-                scaling_diag_matrix = scaling_diag_matrix.float()
-                scaling_matrix_inv = scaling_matrix_inv.float()
-                W_scale = torch.matmul(W, scaling_diag_matrix)
-                U, S, VT = torch.linalg.svd(W_scale, full_matrices=False)
+                    transform_mat += 1e-6 * torch.eye(transform_mat.shape[0], device=W.device)
+                    transform_mat_inv = torch.linalg.inv(transform_mat)
+                transform_mat = transform_mat.float()
+                transform_mat_inv = transform_mat_inv.float()
+                transformed_W = torch.matmul(W, transform_mat)
+                U, S, VT = torch.linalg.svd(transformed_W, full_matrices=False)
                 if getattr(linear, "is_calibration_stage", False):
-                    linear.cached_svd = (U, S, VT, scaling_matrix_inv)
-            S = S[:num_s_after_trunc]
-            U = U[:, :num_s_after_trunc]
-            V = torch.matmul(VT[:num_s_after_trunc, :], scaling_matrix_inv).T
+                    linear.cached_svd = (U, S, VT, transform_mat_inv)
+            S = S[:truncated_rank]
+            U = U[:, :truncated_rank]
+            V = torch.matmul(VT[:truncated_rank, :], transform_mat_inv).T
 
             # truc_sigma = torch.diag(truc_s)
             #### Replace Attn, MLP ####
@@ -70,9 +68,10 @@ class SVDLinear(nn.Module):
             new_linear = SVDLinear(U, S, V, linear.bias, sigma_fuse)
             new_linear.to(linear.weight.dtype)
             if not getattr(linear, "is_calibration_stage", False):
-                linear.whitening_matrix.to("cpu")
+                linear.transform_mat.to("cpu")
             return new_linear
         elif hasattr(linear, "scaling_diag_matrix") or hasattr(linear, "fisher_info"):
+            raise NotImplementedError
             # if param_ratio >= 1:
             #     return linear
             n_params = linear.weight.numel()
@@ -85,18 +84,18 @@ class SVDLinear(nn.Module):
             # print("rank", rank)
             w = linear.weight.data.float()
             if act_aware:
-                scaling_diag_matrix = 1  # avoid zero division
+                transform_mat = 1  # avoid zero division
                 if hasattr(linear, "scaling_diag_matrix"):
                     # print("WARNING: scaling_diag_matrix is used")
-                    scaling_diag_matrix *= linear.scaling_diag_matrix**alpha
+                    transform_mat *= linear.scaling_diag_matrix**alpha
                     # scaling_diag_matrix *= linear.scaling_diag_matrix**0.5
                 if hasattr(linear, "fisher_info"):
-                    scaling_diag_matrix *= linear.fisher_info**alpha
+                    transform_mat *= linear.fisher_info**alpha
                     # scaling_diag_matrix *= linear.fisher_info**1
                 # if not (scaling_diag_matrix == scaling_diag_matrix).all():
                 #     breakpoint()
-                scaling_diag_matrix += 1e-6  # avoid zero division
-                w = w * scaling_diag_matrix.view(1, -1)
+                transform_mat += 1e-6  # avoid zero division
+                w = w * transform_mat.view(1, -1)
             Us = []
             Ss = []
             Vs = []
@@ -108,7 +107,7 @@ class SVDLinear(nn.Module):
                     nn.Linear(linear.in_features, linear.out_features).to(linear.weight.dtype).to(linear.weight.device)
                 )
             if act_aware:
-                V = V / scaling_diag_matrix.view(-1, 1)
+                V = V / transform_mat.view(-1, 1)
             Us = [U]
             Ss = [S]
             Vs = [V]

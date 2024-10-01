@@ -71,7 +71,6 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
                 svd_linear = SVDLinear.from_linear(
                     raw_linear,
                     param_ratio=param_ratio,
-                    alpha=args.alpha,
                     act_aware=args.act_aware,
                     sigma_fuse=args.sigma_fuse,
                     rank_align=args.rank_align,
@@ -121,7 +120,6 @@ def binary_search_truncation_rank(model, sensitivity_dict, calib_loader, args):
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
                 param_ratio=param_ratio,
-                alpha=args.alpha,
                 act_aware=args.act_aware,
                 sigma_fuse=args.sigma_fuse,
                 rank_align=args.rank_align,
@@ -177,7 +175,6 @@ def binary_search_truncation_rank_optimize_scale(model, sensitivity_dict, calib_
                 svd_linear = GradSVDLinear.from_linear(
                     raw_linear,
                     param_ratio=ratio,
-                    alpha=args.alpha,
                     act_aware=args.act_aware,
                     sigma_fuse=args.sigma_fuse,
                 )
@@ -216,7 +213,6 @@ def binary_search_truncation_rank_optimize_scale(model, sensitivity_dict, calib_
         svd_linear = GradSVDLinear.from_linear(
             raw_linear,
             param_ratio=ratio,
-            alpha=args.alpha,
             act_aware=args.act_aware,
             sigma_fuse=args.sigma_fuse,
         )
