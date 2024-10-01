@@ -5,12 +5,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM, Ll
 from transformers.models.opt.configuration_opt import OPTConfig
 from evaluate_utils import evaluate_model
 from datautils import get_calib_data
-from act_aware_utils import calib_input_distribution, calib_fisher_info
+from act_aware_utils import calib_input_distribution, calib_fisher_info, layerwise_cholesky_decomposition
 from sensitivity import calib_sensitivity_ppl, calib_sensitivity_stable_rank
 from quantization import rtn_quant_sequential, awq_quant_sequential
 from binary_search import binary_search_truncation_rank
 import numpy as np
-from modelutils import profile_svdllm_low_resource
 
 
 def main(args):
@@ -23,11 +22,7 @@ def main(args):
     # Load model
     model_id = args.model_id
     print(model_id)
-    if "opt" in model_id or "mistral" in model_id or "Qwen2" in model_id:
-        tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    else:
-        tokenizer = LlamaTokenizer.from_pretrained(model_id, trust_remote_code=True)
-
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_id, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
     )
@@ -42,33 +37,23 @@ def main(args):
     # if "abs" in args.scaling_method:
     #     calib_input_distribution(model, calib_loader, args.scaling_method, args.use_cache)
 
-    if args.profiling_path is not None:
-        profiling_mat = torch.load(args.profiling_path, map_location="cpu")
+    if args.cholesky_mat_cache is not None:
+        cholesky_mat = torch.load(args.cholesky_mat_cache, map_location="cpu")
     else:
         model.seqlen = 2048
-        profiling_mat = profile_svdllm_low_resource(args.model_id, model, calib_loader, args.DEV)
-        if args.save_path is not None:
-            torch.save(
-                profiling_mat,
-                args.save_path
-                + "/"
-                + args.model_id.replace("/", "_").replace("-", "_")
-                + "_profiling_"
-                + args.calib_dataset
-                + "_"
-                + str(args.seed)
-                + ".pt",
-            )
+        cholesky_mat = layerwise_cholesky_decomposition(args.model_id, model, calib_loader, args.DEV)
+        save_path = f"cache/cholesky_{args.model_id.replace('/', '_').replace('-', '_')}_{args.calib_dataset}_{args.n_calib_samples}_{args.seed}.pt"
+        torch.save(cholesky_mat, save_path)
     layers = model.model.layers
 
     for i in range(len(layers)):
         layer = layers[i]
         for name, module in layer.named_modules():
-            if name in profiling_mat[i]:
+            if name in cholesky_mat[i]:
                 # print(f"Profiling matrix found for {name}")
-                whitening_matrix = profiling_mat[i][name]
+                whitening_matrix = cholesky_mat[i][name]
                 module.whitening_matrix = whitening_matrix
-
+    model.to("cuda")
     if args.sensitivity_metric == "ppl":
         sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
     elif args.sensitivity_metric == "stable_rank":
@@ -117,7 +102,7 @@ if __name__ == "__main__":
         help="Pretrained model ID",
     )
     parser.add_argument(
-        "--profiling_path",
+        "--cholesky_mat_cache",
         type=str,
     )
     parser.add_argument(
@@ -141,12 +126,11 @@ if __name__ == "__main__":
         action="store_true",
         help="use act aware svd (ASVD)",
     )
-
     parser.add_argument(
         "--alpha",
         type=float,
         default=0.5,
-        help="hyper-parameter alpha for ASVD",
+        help="alpha for ASVD",
     )
     parser.add_argument(
         "--n_calib_samples",
@@ -157,7 +141,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--calib_dataset",
         type=str,
-        default="c4",
+        default="wikitext2",
         choices=["wikitext2", "c4", "ptb", "alpaca", "selfgen"],
         help="calibration dataset",
     )
@@ -176,6 +160,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use_cache",
+        action="store_true",
+        help="use cached calibration results",
+    )
+    parser.add_argument(
+        "--use_act_cache",
         action="store_true",
         help="use cached calibration results",
     )

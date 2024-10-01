@@ -8,7 +8,7 @@ import numpy as np
 
 
 @torch.no_grad()
-def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True,lm_head=True):
+def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True, lm_head=True):
     model_id = model.config._name_or_path
     cache_file = f"cache/{model_id.replace('/','_')}_sensitivity_{args.scaling_method}_{args.alpha}_{args.n_calib_samples}_{args.calib_dataset}.pt"
     if os.path.exists(cache_file) and use_cache:

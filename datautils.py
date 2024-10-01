@@ -103,15 +103,17 @@ def jload(f, mode="r"):
     return jdict
 
 
-def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
-    print(f" get_ptq_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
-    cache_file = f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"
-    print(f"cache_file={cache_file}")
-    if not os.path.exists("cache"):
-        os.makedirs("cache")
-    if os.path.exists(cache_file):
-        traindataset = torch.load(cache_file)
-        return traindataset
+def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3, calib_data_cache_path=None):
+    print(f" get_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
+    if calib_data_cache_path is not None:
+        # cache_file = f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"
+        cache_file = calib_data_cache_path
+        print(f"cache_file={cache_file}")
+        if not os.path.exists("cache"):
+            os.makedirs("cache")
+        if os.path.exists(cache_file):
+            calib_data = torch.load(cache_file)
+            return calib_data
     if name == "c4":
         traindata = load_dataset(
             "allenai/c4", data_files={"train": "en/c4-train.00000-of-01024.json.gz"}, split="train"
@@ -124,10 +126,11 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
         traindata = load_dataset("ptb_text_only", "penn_treebank", split="train")
         tot_text = "\n\n".join(traindata["sentence"])
     elif name == "alpaca":
-        # this is for chat models
+        # The performance is not good, so we don't use it for now.
+        # TODO: alpaca prompt format transformation like SFT
         data_path = "data/alpaca_data.json"
         list_data_dict = jload(data_path)
-        traindataset = []
+        calib_data = []
         selected_data_dict = random.sample(list_data_dict, nsamples)
         for example in selected_data_dict:
             if example.get("input", "") == "":
@@ -135,15 +138,12 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
                 trainenc = tokenizer(s, return_tensors="pt")
                 inp = trainenc.input_ids[:, :seqlen]
                 attention_mask = torch.ones_like(inp)
-                traindataset.append({"input_ids": inp, "attention_mask": attention_mask})
-        return traindataset
-    elif name == "selfgen":
-        raise NotImplementedError
-
+                calib_data.append({"input_ids": inp, "attention_mask": attention_mask})
+        return calib_data
     else:
         raise NotImplementedError
     print(f"tot_text={len(tot_text)}")
-    traindataset = []
+    calib_data = []
     for _ in range(nsamples):
         i = random.randint(0, len(tot_text) - seqlen - 1)
         j = i + seqlen * 10
@@ -153,9 +153,10 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
         trainenc = tokenizer(txt, return_tensors="pt")
         inp = trainenc.input_ids[:, :seqlen]
         attention_mask = torch.ones_like(inp)
-        traindataset.append({"input_ids": inp, "attention_mask": attention_mask})
-    torch.save(traindataset, cache_file)
-    return traindataset
+        calib_data.append({"input_ids": inp, "attention_mask": attention_mask})
+    if calib_data_cache_path is not None:
+        torch.save(calib_data, cache_file)
+    return calib_data
 
 
 def get_eval_loaders(name, tokenizer):
