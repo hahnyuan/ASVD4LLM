@@ -1,7 +1,7 @@
 datasets
-transformers==4.41.0
+transformers
 torch
-lm_eval==0.3.0
-accelerate==0.25.0
-optimum==1.15.0
+lm_eval==0.4.3
+accelerate
 tqdm
+deepeval

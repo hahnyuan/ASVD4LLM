@@ -43,7 +43,6 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True, lm_head=Tru
             svd_linear = SVDLinear.from_linear(
                 raw_linear,
                 param_ratio=param_ratio,
-                act_aware=True,
                 rank_align=args.rank_align,
             )
             setattr(info["father"], info["name"], svd_linear)

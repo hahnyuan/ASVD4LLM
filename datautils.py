@@ -147,10 +147,7 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3, cal
     for _ in range(nsamples):
         i = random.randint(0, len(tot_text) - seqlen - 1)
         j = i + seqlen * 10
-        txt = tot_text[i:j]
-        ind = txt.find(".")
-        txt = txt[ind + 1 :].strip()
-        trainenc = tokenizer(txt, return_tensors="pt")
+        trainenc = tokenizer(tot_text[i:j], return_tensors="pt")
         inp = trainenc.input_ids[:, :seqlen]
         attention_mask = torch.ones_like(inp)
         calib_data.append({"input_ids": inp, "attention_mask": attention_mask})

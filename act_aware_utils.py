@@ -45,27 +45,27 @@ def calib_fisher_info(model, calib_loader, use_cache=True):
 
 
 @torch.no_grad()
-def calib_input_distribution(model, calib_loader, method, use_cache=True):
+def calib_input_distribution(model, calib_loader, method):
     model.eval()
 
     # set hook for every Linear layers
     def hook(module, input, output):
         if "magnitude" in method:
             abs_mean = input[0].abs().mean(dim=-2).detach().view(-1)
-            module.scaling_diag_matrix += abs_mean
+            module.magnitude += abs_mean
         elif "abs_max" in method:
             abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
-            module.scaling_diag_matrix = torch.where(
-                abs_max > module.scaling_diag_matrix,
+            module.magnitude = torch.where(
+                abs_max > module.magnitude,
                 abs_max,
-                module.scaling_diag_matrix,
+                module.magnitude,
             )
         # abs_max = input[0].abs().amax(dim=-2).detach().view(-1)
-        # module.scaling_diag_matrix += abs_max
+        # module.magnitude += abs_max
 
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
-            module.scaling_diag_matrix = 0
+            module.magnitude = 0
             module.register_forward_hook(hook)
 
     # get activation distribution
@@ -74,14 +74,22 @@ def calib_input_distribution(model, calib_loader, method, use_cache=True):
         batch = {k: v.to(model.device) for k, v in batch.items()}
         model(**batch)
 
-    # remove and save scaling_diag_matrix
-    all_scaling_diag_matrix = {}
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            module._forward_hooks.clear()
-            all_scaling_diag_matrix[name] = module.scaling_diag_matrix
-            module.scaling_diag_matrix = None
-    return all_scaling_diag_matrix
+    # remove and save magnitude
+    all_magnitude = []
+    alpha = 0.5 if "alpha0.5" in method else 1
+    if "opt" in model.config._name_or_path:
+        layers = model.model.decoder.layers
+    else:
+        layers = model.model.layers
+    for i, layer in enumerate(layers):
+        layer_magnitude = {}
+        for name, module in layer.named_modules():
+            if isinstance(module, nn.Linear):
+                module._forward_hooks.clear()
+                layer_magnitude[f"{name}"] = module.magnitude**alpha
+                module.magnitude = None
+        all_magnitude.append(layer_magnitude)
+    return all_magnitude
 
 
 def find_layers(module, layers=[nn.Conv2d, nn.Linear], name=""):
