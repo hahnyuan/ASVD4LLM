@@ -6,7 +6,7 @@ from transformers.models.opt.configuration_opt import OPTConfig
 from evaluate_utils import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info, layerwise_cholesky_decomposition
-from sensitivity import calib_sensitivity_ppl, calib_sensitivity_stable_rank
+from sensitivity import calib_sensitivity_ppl
 from quantization import rtn_quant_sequential, awq_quant_sequential
 from binary_search import binary_search_truncation_rank
 import numpy as np
@@ -62,15 +62,13 @@ def main(args):
 
         # evaluate sensitivity for each linear layer
         model.to("cuda")
-        sensitivity_cache = f"{cache_dir}/{args.transform_mat_method}_{args.sensitivity_metric}_{args.calib_dataset}_{args.n_calib_samples}_{args.seed}.pt"
+        sensitivity_cache = f"{cache_dir}/{args.transform_mat_method}_{args.sensitivity_metric}_{args.calib_dataset}_{args.n_calib_samples}_{args.sensitivity_samples}_{args.seed}.pt"
         if args.use_cache and os.path.exists(sensitivity_cache):
             print(f"Loading sensitivity from CACHE: {sensitivity_cache}")
             sensitivity = torch.load(sensitivity_cache, map_location="cpu")
         else:
             if args.sensitivity_metric == "ppl":
                 sensitivity = calib_sensitivity_ppl(model, calib_loader, args, args.use_cache)
-            # elif args.sensitivity_metric == "stable_rank":
-            #     sensitivity = calib_sensitivity_stable_rank(model, calib_loader, args, args.use_cache)
             else:
                 raise NotImplementedError
             torch.save(sensitivity, sensitivity_cache)
@@ -133,6 +131,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--n_calib_samples",
+        type=int,
+        default=256,
+        help="number of samples used for calibration",
+    )
+    parser.add_argument(
+        "--sensitivity_samples",
         type=int,
         default=32,
         help="number of samples used for calibration",

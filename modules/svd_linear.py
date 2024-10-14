@@ -73,7 +73,7 @@ class SVDLinear(nn.Module):
 
             # print("rank", rank)
             w = linear.weight.data.float()
-            transform_mat = linear.transform_mat + 1e-6  # avoid zero division
+            transform_mat = linear.transform_mat.to(w.device) + 1e-6  # avoid zero division
             w = w * transform_mat.view(1, -1)
             try:
                 U, S, V = torch.svd_lowrank(w, q=rank)
