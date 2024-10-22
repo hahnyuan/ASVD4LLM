@@ -1,8 +1,7 @@
 import argparse
 import torch
 import os
-from transformers import AutoModelForCausalLM, AutoTokenizer, OPTForCausalLM
-from transformers.models.opt.configuration_opt import OPTConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from evaluate_utils import evaluate_model
 from datautils import get_calib_data
 from act_aware_utils import calib_input_distribution, calib_fisher_info

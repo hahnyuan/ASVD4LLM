@@ -36,7 +36,7 @@ def calib_sensitivity_ppl(model, calib_loader, args, use_cache=True):
     if args.compress_kv_cache:
         param_ratio_candidates = [0.1 * i for i in range(1, 20)]
     else:
-        param_ratio_candidates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        param_ratio_candidates = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     input_ids = torch.cat([_["input_ids"] for _ in calib_loader], 0)
     print(f"input_ids.shape={input_ids.shape}")
     pbar = tqdm(total=len(linear_info) * len(param_ratio_candidates))
