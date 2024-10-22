@@ -103,9 +103,9 @@ def jload(f, mode="r"):
     return jdict
 
 
-def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
+def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3, use_bos=False):
     print(f" get_ptq_calib_data {name}, nsamples={nsamples}, seqlen={seqlen}, {seed}")
-    cache_file = f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}.pt"
+    cache_file = f"cache/{name}_{model_id.replace('/','_')}_{nsamples}_{seqlen}_{seed}_bos{use_bos}.pt"
     print(f"cache_file={cache_file}")
     if not os.path.exists("cache"):
         os.makedirs("cache")
@@ -150,6 +150,8 @@ def get_calib_data(name, tokenizer, model_id, nsamples, seqlen=2048, seed=3):
         txt = tot_text[i:j]
         ind = txt.find(".")
         txt = txt[ind + 1 :].strip()
+        if use_bos:
+            txt = tokenizer.bos_token + txt
         trainenc = tokenizer(txt, return_tensors="pt")
         inp = trainenc.input_ids[:, :seqlen]
         attention_mask = torch.ones_like(inp)

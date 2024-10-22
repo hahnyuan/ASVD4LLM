@@ -125,6 +125,7 @@ def evaluate_model(
     num_fewshot=0,
     limit=-1,
     batch_size=1,
+    use_bos=False,
 ):
     """
     model: model name
@@ -146,6 +147,8 @@ def evaluate_model(
                 torch.save(testloader, cache_testloader)
             # print(dataset)
             testenc = testloader.input_ids
+            if use_bos:
+                lm.seqlen -= 1
             nsamples = testenc.numel() // lm.seqlen
             use_cache = lm.model.config.use_cache
             lm.model.config.use_cache = False
@@ -154,8 +157,13 @@ def evaluate_model(
 
             for i in tqdm(range(nsamples)):
                 batch = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)].to(lm.device)
+                if use_bos:
+                    bos_tokens_tensor = torch.tensor([[tokenizer.bos_token_id]] * batch.size(dim=0)).to(lm.device)
+                    batch = torch.cat([bos_tokens_tensor, batch], dim=1)
                 outputs = lm.model.model(batch)
                 hidden_states = outputs[0]  # .to(lm.model.lm_head.weight.device)
+                if use_bos:
+                    hidden_states = hidden_states[:, 1:, :]
                 logits = lm.model.lm_head(hidden_states)  # .contiguous()
                 shift_logits = logits[:, :-1, :]  # .contiguous()
                 shift_labels = testenc[:, (i * lm.seqlen) : ((i + 1) * lm.seqlen)][:, 1:].to(lm.device)
@@ -186,13 +194,13 @@ def evaluate_model(
 
         longbench_results = eval_longbench(model, tokenizer, model_name, datasets=full_longeval_datasets)
         results.update(longbench_results)
-        tasks=""
+        tasks = ""
     elif tasks == "small_longbench":
         from tools.eval_longbench import eval_longbench, full_longeval_datasets, small_longeval_datasets
 
         longbench_results = eval_longbench(model, tokenizer, model_name, datasets=small_longeval_datasets)
         results.update(longbench_results)
-        tasks=""
+        tasks = ""
     elif tasks == "mmlu":
         tasks = "hendrycksTest-abstract_algebra,hendrycksTest-anatomy,hendrycksTest-astronomy,hendrycksTest-business_ethics,hendrycksTest-clinical_knowledge,hendrycksTest-college_biology,hendrycksTest-college_chemistry,hendrycksTest-college_computer_science,hendrycksTest-college_mathematics,hendrycksTest-college_medicine,hendrycksTest-college_physics,hendrycksTest-computer_security,hendrycksTest-conceptual_physics,hendrycksTest-econometrics,hendrycksTest-electrical_engineering,hendrycksTest-elementary_mathematics,hendrycksTest-formal_logic,hendrycksTest-global_facts,hendrycksTest-high_school_biology,hendrycksTest-high_school_chemistry,hendrycksTest-high_school_computer_science,hendrycksTest-high_school_european_history,hendrycksTest-high_school_geography,hendrycksTest-high_school_government_and_politics,hendrycksTest-high_school_macroeconomics,hendrycksTest-high_school_mathematics,hendrycksTest-high_school_microeconomics,hendrycksTest-high_school_physics,hendrycksTest-high_school_psychology,hendrycksTest-high_school_statistics,hendrycksTest-high_school_us_history,hendrycksTest-high_school_world_history,hendrycksTest-human_aging,hendrycksTest-human_sexuality,hendrycksTest-international_law,hendrycksTest-jurisprudence,hendrycksTest-logical_fallacies,hendrycksTest-machine_learning,hendrycksTest-management,hendrycksTest-marketing,hendrycksTest-medical_genetics,hendrycksTest-miscellaneous,hendrycksTest-moral_disputes,hendrycksTest-moral_scenarios,hendrycksTest-nutrition,hendrycksTest-philosophy,hendrycksTest-prehistory,hendrycksTest-professional_accounting,hendrycksTest-professional_law,hendrycksTest-professional_medicine,hendrycksTest-professional_psychology,hendrycksTest-public_relations,hendrycksTest-security_studies,hendrycksTest-sociology,hendrycksTest-us_foreign_policy,hendrycksTest-virology,hendrycksTest-world_religions"
     elif tasks == "llmqat":
